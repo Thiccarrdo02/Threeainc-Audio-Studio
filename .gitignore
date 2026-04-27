@@ -1,0 +1,13 @@
+node_modules/
+.next/
+out/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+.codex/
+.get-shit-done-source/
+*.log
+Thumbs.db
+.DS_Store

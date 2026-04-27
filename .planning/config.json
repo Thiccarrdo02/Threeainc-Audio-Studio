@@ -1,0 +1,31 @@
+{
+  "mode": "yolo",
+  "granularity": "fine",
+  "project_code": "TZ-AUDIO",
+  "parallelization": {
+    "enabled": true
+  },
+  "planning": {
+    "commit_docs": true
+  },
+  "git": {
+    "branching_strategy": "none"
+  },
+  "workflow": {
+    "research": true,
+    "plan_check": true,
+    "verifier": true,
+    "nyquist_validation": true,
+    "auto_advance": false,
+    "discuss_mode": "assumptions",
+    "text_mode": false,
+    "security_enforcement": true,
+    "security_asvs_level": 1,
+    "security_block_on": "high",
+    "post_planning_gaps": true
+  },
+  "model_profile": "inherit",
+  "created_at": "2026-04-27",
+  "created_by": "Codex via local GSD install",
+  "source_prd": "AUDIO_APP_PRD.md"
+}
