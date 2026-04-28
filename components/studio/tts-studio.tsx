@@ -1,0 +1,1287 @@
+"use client";
+
+import {
+  AlertCircle,
+  Check,
+  Clock3,
+  Download,
+  Mic2,
+  Pause,
+  Play,
+  RotateCcw,
+  Save,
+  Search,
+  SlidersHorizontal,
+  Sparkles,
+  Volume2,
+  X,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import { EXPRESSIVE_TAGS } from "@/config/expressive-tags";
+import { LONG_SCRIPT_WARNING_CHARACTERS } from "@/config/limits";
+import { MVP_LANGUAGES, toProviderLanguageCode } from "@/config/languages";
+import {
+  ACCENT_PRESETS,
+  PACE_PRESETS,
+  TONE_PRESETS,
+  getPresetInstruction,
+} from "@/config/style-presets";
+import { MVP_VOICES } from "@/config/voices";
+import { Button } from "@/components/ui/button";
+import { useAudioManager } from "@/hooks/use-audio-manager";
+import { useTTSGeneration } from "@/hooks/use-tts-generation";
+import { useVoicePreview } from "@/hooks/use-voice-preview";
+import { estimatePromptCost } from "@/lib/cost";
+import { clientStore, makeLocalId } from "@/lib/client-store";
+import type {
+  LanguageOption,
+  LocalGeneration,
+  LocalScript,
+  StudioState,
+  TTSOutputFormat,
+  Voice,
+  VoiceGender,
+} from "@/types/tts";
+
+const defaultStudioState: StudioState = {
+  mode: "single",
+  prompt: "",
+  styleInstructions: "",
+  voiceId: "Kore",
+  languageCode: "auto",
+  outputFormat: "mp3",
+  temperature: 1,
+  accentPreset: "neutral",
+  tonePreset: "natural",
+  pacePreset: "steady",
+  speakers: [
+    { speaker_id: "Speaker1", voice: "Kore" },
+    { speaker_id: "Speaker2", voice: "Puck" },
+  ],
+};
+
+const OUTPUT_FORMAT_OPTIONS: Array<{
+  value: TTSOutputFormat;
+  label: string;
+  description: string;
+}> = [
+  { value: "mp3", label: "MP3", description: "Small, shareable" },
+  { value: "wav", label: "WAV", description: "Studio quality" },
+  { value: "ogg_opus", label: "Opus", description: "Efficient web audio" },
+];
+
+const PREVIEW_LANGUAGE_OPTIONS = [
+  { value: "english", label: "English previews" },
+  { value: "hindi", label: "Hindi audition" },
+] as const;
+
+function composeStyleInstructions(state: StudioState) {
+  const presetInstructions = [
+    getPresetInstruction(ACCENT_PRESETS, state.accentPreset),
+    getPresetInstruction(TONE_PRESETS, state.tonePreset),
+    getPresetInstruction(PACE_PRESETS, state.pacePreset),
+  ];
+
+  return [...presetInstructions, state.styleInstructions.trim()]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function languageOptionLabel(language: LanguageOption) {
+  if (language.id === "auto") {
+    return language.label;
+  }
+
+  return language.region === "India"
+    ? `India - ${language.label}`
+    : `${language.region ?? "Global"} - ${language.label}`;
+}
+
+function formatTime(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return "0:00";
+  }
+
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
+function formatCost(value: number) {
+  return `$${value.toFixed(4)}`;
+}
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+      {children}
+    </label>
+  );
+}
+
+function TopBar({
+  mode,
+  characterCount,
+  onModeChange,
+}: {
+  mode: StudioState["mode"];
+  characterCount: number;
+  onModeChange: (mode: StudioState["mode"]) => void;
+}) {
+  return (
+    <header className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur">
+      <div className="mx-auto flex min-h-14 max-w-7xl flex-wrap items-center justify-between gap-2 px-4 py-2 sm:flex-nowrap sm:gap-3 sm:px-6">
+        <div className="flex items-center gap-3">
+          <div className="flex size-8 items-center justify-center rounded-lg bg-theme-gradient-button text-white shadow-[0_4px_16px_rgba(31,76,238,0.25)]">
+            <Mic2 size={17} aria-hidden="true" />
+          </div>
+          <div>
+            <p className="font-heading text-base font-semibold">Audio Studio</p>
+            <p className="hidden text-xs text-muted-foreground sm:block">
+              Local ThreeZinc speech workspace
+            </p>
+          </div>
+        </div>
+
+        <div className="flex contents items-center gap-2 sm:flex">
+          <div className="order-3 flex w-full rounded-md border border-border bg-card p-0.5 sm:order-none sm:w-auto">
+            <button
+              className={`flex-1 rounded px-3 py-1 text-xs font-medium sm:flex-none ${
+                mode === "single"
+                  ? "bg-theme-primary text-white"
+                  : "text-muted-foreground"
+              }`}
+              type="button"
+              onClick={() => onModeChange("single")}
+            >
+              Single Voice
+            </button>
+            <button
+              className={`flex-1 rounded px-3 py-1 text-xs font-medium sm:flex-none ${
+                mode === "multi"
+                  ? "bg-theme-primary text-white"
+                  : "text-muted-foreground"
+              }`}
+              type="button"
+              onClick={() => onModeChange("multi")}
+            >
+              Multi-Speaker
+            </button>
+          </div>
+          <div className="rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
+            {characterCount.toLocaleString()} chars
+          </div>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function CostEstimator({ prompt }: { prompt: string }) {
+  return (
+    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <Sparkles size={14} aria-hidden="true" />
+      <span>Estimated cost {formatCost(estimatePromptCost(prompt))}</span>
+    </div>
+  );
+}
+
+function TagInserter({ onInsert }: { onInsert: (tag: string) => void }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {EXPRESSIVE_TAGS.map((tag) => (
+        <button
+          key={tag}
+          type="button"
+          className="rounded border border-border bg-background px-2 py-1 text-xs text-muted-foreground transition hover:border-theme-primary hover:text-theme-primary"
+          onClick={() => onInsert(tag)}
+        >
+          {tag}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ScriptEditor({
+  prompt,
+  onPromptChange,
+}: {
+  prompt: string;
+  onPromptChange: (value: string) => void;
+}) {
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const insertTag = useCallback((tag: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      onPromptChange(`${prompt}${prompt ? " " : ""}${tag} `);
+      return;
+    }
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const next = `${prompt.slice(0, start)}${tag} ${prompt.slice(end)}`;
+    onPromptChange(next);
+    window.requestAnimationFrame(() => {
+      textarea.focus();
+      const cursor = start + tag.length + 1;
+      textarea.setSelectionRange(cursor, cursor);
+    });
+  }, [onPromptChange, prompt]);
+
+  return (
+    <section className="space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <FieldLabel>Script</FieldLabel>
+        <CostEstimator prompt={prompt} />
+      </div>
+      <textarea
+        ref={textareaRef}
+        className="min-h-[260px] w-full resize-y rounded-lg border border-border bg-card px-3 py-3 text-sm leading-6 outline-none transition placeholder:text-muted-foreground/70 focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+        value={prompt}
+        onChange={(event) => onPromptChange(event.target.value)}
+        placeholder="Write the spoken script here. Add expressive tags like [excited] or [short pause] where they should influence delivery."
+      />
+      {prompt.length > LONG_SCRIPT_WARNING_CHARACTERS ? (
+        <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <AlertCircle size={14} aria-hidden="true" />
+          Long scripts may reduce quality. Consider splitting.
+        </div>
+      ) : null}
+      <TagInserter onInsert={insertTag} />
+    </section>
+  );
+}
+
+function StudioControls({
+  state,
+  speakerIssues,
+  onChange,
+}: {
+  state: StudioState;
+  speakerIssues: string[];
+  onChange: (state: StudioState) => void;
+}) {
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_220px]">
+        <div className="space-y-1.5">
+          <FieldLabel>Language</FieldLabel>
+          <select
+            className="h-9 w-full rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+            value={state.languageCode}
+            aria-label="Generation language"
+            onChange={(event) =>
+              onChange({ ...state, languageCode: event.target.value })
+            }
+          >
+            {MVP_LANGUAGES.map((language) => (
+              <option key={language.id} value={language.id}>
+                {languageOptionLabel(language)}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-1.5">
+          <FieldLabel>Output</FieldLabel>
+          <select
+            className="h-9 w-full rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+            value={state.outputFormat}
+            aria-label="Output format"
+            onChange={(event) =>
+              onChange({
+                ...state,
+                outputFormat: event.target.value as TTSOutputFormat,
+              })
+            }
+          >
+            {OUTPUT_FORMAT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label} - {option.description}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {state.mode === "multi" ? (
+        <div className="rounded-lg border border-theme-primary bg-[rgba(51,83,254,0.08)] px-3 py-2 text-sm font-medium text-theme-primary">
+          Multi-speaker mode uses exactly two speakers.
+        </div>
+      ) : null}
+
+      {state.mode === "multi" ? (
+        <MultiSpeakerBuilder
+          speakers={state.speakers}
+          issues={speakerIssues}
+          onChange={(speakers) => onChange({ ...state, speakers })}
+        />
+      ) : null}
+
+      <ScriptEditor
+        prompt={state.prompt}
+        onPromptChange={(prompt) => onChange({ ...state, prompt })}
+      />
+
+      <section className="space-y-3 rounded-lg border border-border bg-card p-3">
+        <div className="flex items-center gap-2">
+          <SlidersHorizontal size={15} className="text-theme-primary" aria-hidden="true" />
+          <FieldLabel>Voice Controls</FieldLabel>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="space-y-1.5">
+            <FieldLabel>Accent</FieldLabel>
+            <select
+              className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+              value={state.accentPreset}
+              aria-label="Accent preset"
+              onChange={(event) =>
+                onChange({ ...state, accentPreset: event.target.value })
+              }
+            >
+              {ACCENT_PRESETS.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <FieldLabel>Tone</FieldLabel>
+            <select
+              className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+              value={state.tonePreset}
+              aria-label="Tone preset"
+              onChange={(event) =>
+                onChange({ ...state, tonePreset: event.target.value })
+              }
+            >
+              {TONE_PRESETS.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <FieldLabel>Pace</FieldLabel>
+            <select
+              className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+              value={state.pacePreset}
+              aria-label="Pace preset"
+              onChange={(event) =>
+                onChange({ ...state, pacePreset: event.target.value })
+              }
+            >
+              {PACE_PRESETS.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between gap-3">
+            <FieldLabel>Creativity</FieldLabel>
+            <span className="text-xs font-medium text-muted-foreground">
+              {state.temperature.toFixed(1)}
+            </span>
+          </div>
+          <input
+            className="w-full accent-[#3353FE]"
+            type="range"
+            min={0}
+            max={2}
+            step={0.1}
+            value={state.temperature}
+            onChange={(event) =>
+              onChange({ ...state, temperature: Number(event.target.value) })
+            }
+            aria-label="Generation creativity"
+          />
+        </div>
+      </section>
+
+      <section className="space-y-1.5">
+        <FieldLabel>Custom Direction</FieldLabel>
+        <input
+          className="h-10 w-full rounded-md border border-border bg-card px-3 text-sm outline-none transition placeholder:text-muted-foreground/70 focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+          value={state.styleInstructions}
+          onChange={(event) =>
+            onChange({ ...state, styleInstructions: event.target.value })
+          }
+          placeholder="Example: Speak clearly, confident, slightly upbeat."
+        />
+      </section>
+
+    </div>
+  );
+}
+
+function MultiSpeakerBuilder({
+  speakers,
+  issues,
+  onChange,
+}: {
+  speakers: StudioState["speakers"];
+  issues: string[];
+  onChange: (speakers: StudioState["speakers"]) => void;
+}) {
+  const updateSpeaker = (
+    index: number,
+    patch: Partial<StudioState["speakers"][number]>,
+  ) => {
+    onChange(
+      speakers.map((speaker, speakerIndex) =>
+        speakerIndex === index ? { ...speaker, ...patch } : speaker,
+      ),
+    );
+  };
+
+  return (
+    <section className="space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <FieldLabel>Speaker Builder</FieldLabel>
+        <span className="text-xs text-muted-foreground">Exactly 2 speakers</span>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {speakers.map((speaker, index) => (
+          <div
+            key={index}
+            className="rounded-lg border border-border bg-card p-3"
+          >
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <p className="font-heading text-sm font-semibold">
+                Speaker {index + 1}
+              </p>
+              <span className="truncate text-xs text-muted-foreground">
+                Prefix: {speaker.speaker_id || "Alias"}:
+              </span>
+            </div>
+            <div className="grid gap-2">
+              <input
+                className="h-9 rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+                value={speaker.speaker_id}
+                onChange={(event) =>
+                  updateSpeaker(index, { speaker_id: event.target.value })
+                }
+                aria-label={`Speaker ${index + 1} alias`}
+              />
+              <select
+                className="h-9 rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+                value={speaker.voice}
+                onChange={(event) =>
+                  updateSpeaker(index, { voice: event.target.value })
+                }
+                aria-label={`Speaker ${index + 1} voice`}
+              >
+                {MVP_VOICES.map((voice) => (
+                  <option key={voice.id} value={voice.id}>
+                    {voice.displayName}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        ))}
+      </div>
+      {issues.length > 0 ? (
+        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+          {issues.join(" ")}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Use each alias as a prompt prefix, for example `Speaker1:`.
+        </p>
+      )}
+    </section>
+  );
+}
+
+function VoiceCard({
+  voice,
+  selected,
+  active,
+  isPlaying,
+  error,
+  previewDisabledReason,
+  onSelect,
+  onPreview,
+}: {
+  voice: Voice;
+  selected: boolean;
+  active: boolean;
+  isPlaying: boolean;
+  error?: string;
+  previewDisabledReason?: string;
+  onSelect: () => void;
+  onPreview: () => void;
+}) {
+  const previewError = previewDisabledReason ?? error;
+
+  return (
+    <article
+      className={`rounded-lg border bg-card p-3 transition ${
+        selected
+          ? "border-theme-primary shadow-[0_0_0_3px_rgba(51,83,254,0.08)]"
+          : "border-border"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <button
+          type="button"
+          className="min-w-0 text-left"
+          onClick={onSelect}
+          aria-pressed={selected}
+        >
+          <div className="flex items-center gap-2">
+            <p className="font-heading text-base font-semibold">
+              {voice.displayName}
+            </p>
+            {selected ? (
+              <span className="flex size-5 items-center justify-center rounded-full bg-theme-primary text-white">
+                <Check size={12} aria-hidden="true" />
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {voice.description}
+          </p>
+        </button>
+        <Button
+          type="button"
+          size="icon-sm"
+          variant={active && isPlaying ? "secondary" : "outline"}
+          onClick={onPreview}
+          title={previewError ?? `Preview ${voice.displayName}`}
+          aria-label={`Preview ${voice.displayName}`}
+          disabled={Boolean(previewError)}
+        >
+          {active && isPlaying ? (
+            <Pause size={14} aria-hidden="true" />
+          ) : (
+            <Play size={14} aria-hidden="true" />
+          )}
+        </Button>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-1">
+        <span className="rounded border border-border bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground">
+          {voice.gender}
+        </span>
+        {voice.tones.map((tone) => (
+          <span
+            key={tone}
+            className="rounded border border-border bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground"
+          >
+            {tone}
+          </span>
+        ))}
+      </div>
+      {previewError ? (
+        <p className="mt-2 text-xs text-muted-foreground">{previewError}</p>
+      ) : null}
+    </article>
+  );
+}
+
+type PreviewLanguage = (typeof PREVIEW_LANGUAGE_OPTIONS)[number]["value"];
+
+function VoiceCatalog({
+  mode,
+  selectedVoiceId,
+  preview,
+  onSelect,
+}: {
+  mode: StudioState["mode"];
+  selectedVoiceId: string;
+  preview: ReturnType<typeof useVoicePreview>;
+  onSelect: (voiceId: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [genderFilter, setGenderFilter] = useState<"all" | VoiceGender>("all");
+  const [toneFilter, setToneFilter] = useState("all");
+  const [previewFilter, setPreviewFilter] = useState("all");
+  const [previewLanguage, setPreviewLanguage] =
+    useState<PreviewLanguage>("english");
+
+  const tones = useMemo(
+    () =>
+      Array.from(new Set(MVP_VOICES.flatMap((voice) => voice.tones))).sort(
+        (a, b) => a.localeCompare(b),
+      ),
+    [],
+  );
+
+  const filteredVoices = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+
+    return MVP_VOICES.filter((voice) => {
+      const matchesQuery =
+        !normalizedQuery ||
+        [voice.displayName, voice.description, voice.gender, ...voice.tones]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedQuery);
+      const matchesGender =
+        genderFilter === "all" || voice.gender === genderFilter;
+      const matchesTone =
+        toneFilter === "all" || voice.tones.includes(toneFilter);
+      const matchesPreview =
+        previewFilter === "all" || Boolean(voice.previewUrl);
+
+      return matchesQuery && matchesGender && matchesTone && matchesPreview;
+    });
+  }, [genderFilter, previewFilter, query, toneFilter]);
+
+  return (
+    <aside className="space-y-3">
+      <div>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-heading text-lg font-semibold">Voice Catalog</h2>
+          <span className="text-xs font-medium text-muted-foreground">
+            {filteredVoices.length}/{MVP_VOICES.length}
+          </span>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          All Fal/Gemini voices are selectable. Local static previews exist for seeded voices.
+        </p>
+      </div>
+      <div className="space-y-2">
+        <div className="relative">
+          <Search
+            size={14}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <input
+            className="h-9 w-full rounded-md border border-border bg-card pl-8 pr-3 text-sm outline-none transition placeholder:text-muted-foreground/70 focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search voice, tone, gender"
+            aria-label="Search voice catalog"
+          />
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <select
+            className="h-9 rounded-md border border-border bg-card px-2 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+            value={genderFilter}
+            onChange={(event) =>
+              setGenderFilter(event.target.value as "all" | VoiceGender)
+            }
+            aria-label="Filter by gender"
+          >
+            <option value="all">All genders</option>
+            <option value="Female">Female</option>
+            <option value="Male">Male</option>
+          </select>
+          <select
+            className="h-9 rounded-md border border-border bg-card px-2 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+            value={toneFilter}
+            onChange={(event) => setToneFilter(event.target.value)}
+            aria-label="Filter by tone"
+          >
+            <option value="all">All tones</option>
+            {tones.map((tone) => (
+              <option key={tone} value={tone}>
+                {tone}
+              </option>
+            ))}
+          </select>
+          <select
+            className="h-9 rounded-md border border-border bg-card px-2 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+            value={previewFilter}
+            onChange={(event) => setPreviewFilter(event.target.value)}
+            aria-label="Filter by preview availability"
+          >
+            <option value="all">All voices</option>
+            <option value="local">Local preview ready</option>
+          </select>
+          <select
+            className="h-9 rounded-md border border-border bg-card px-2 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+            value={previewLanguage}
+            onChange={(event) =>
+              setPreviewLanguage(event.target.value as PreviewLanguage)
+            }
+            aria-label="Preview language"
+          >
+            {PREVIEW_LANGUAGE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        {previewLanguage === "hindi" ? (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Hindi and Indian-language generation are enabled. Hindi static preview assets need owned local files before instant preview playback.
+          </div>
+        ) : null}
+      </div>
+      <div className="grid max-h-[360px] gap-2 overflow-y-auto pr-1 lg:max-h-[360px]">
+        {filteredVoices.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+            No voices match the current filters.
+          </div>
+        ) : (
+          filteredVoices.map((voice) => {
+            const previewDisabledReason =
+              previewLanguage === "hindi"
+                ? "Hindi instant preview needs a local Hindi preview asset."
+                : voice.previewUrl
+                  ? undefined
+                  : "Static preview pending. Select and generate to audition.";
+
+            return (
+              <VoiceCard
+                key={voice.id}
+                voice={voice}
+                selected={mode === "single" && selectedVoiceId === voice.id}
+                active={preview.activePreviewId === voice.id}
+                isPlaying={preview.isPlaying}
+                error={preview.errors[voice.id]}
+                previewDisabledReason={previewDisabledReason}
+                onSelect={() => {
+                  if (mode === "single") {
+                    onSelect(voice.id);
+                  }
+                }}
+                onPreview={() => preview.preview(voice)}
+              />
+            );
+          })
+        )}
+      </div>
+    </aside>
+  );
+}
+
+function LocalHistoryPanel({
+  generations,
+  scripts,
+  onLoadScript,
+  onLoadGeneration,
+}: {
+  generations: LocalGeneration[];
+  scripts: LocalScript[];
+  onLoadScript: (script: LocalScript) => void;
+  onLoadGeneration: (generation: LocalGeneration) => void;
+}) {
+  return (
+    <section className="space-y-3">
+      <div>
+        <h2 className="font-heading text-lg font-semibold">Local History</h2>
+        <p className="text-xs text-muted-foreground">
+          Browser-stored metadata only.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        {generations.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+            No generations yet.
+          </div>
+        ) : (
+          generations.slice(0, 5).map((generation) => (
+            <button
+              key={generation.id}
+              type="button"
+              className="w-full rounded-lg border border-border bg-card px-3 py-2 text-left transition hover:border-theme-primary"
+              onClick={() => onLoadGeneration(generation)}
+            >
+              <p className="line-clamp-1 text-sm font-medium">
+                {generation.prompt}
+              </p>
+              <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                <Clock3 size={12} aria-hidden="true" />
+                {new Date(generation.createdAt).toLocaleString()}
+              </p>
+            </button>
+          ))
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          Saved scripts
+        </p>
+        {scripts.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
+            No saved scripts.
+          </div>
+        ) : (
+          scripts.slice(0, 5).map((script) => (
+            <button
+              key={script.id}
+              type="button"
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-left text-sm transition hover:border-theme-primary"
+              onClick={() => onLoadScript(script)}
+            >
+              {script.title}
+            </button>
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
+function GenerationPanel({
+  state,
+  selectedVoice,
+  speakerIssues,
+  generationError,
+  isGenerating,
+  onGenerate,
+  onSaveScript,
+}: {
+  state: StudioState;
+  selectedVoice: Voice;
+  speakerIssues: string[];
+  generationError?: { code: string; message: string; retryable: boolean };
+  isGenerating: boolean;
+  onGenerate: () => void;
+  onSaveScript: () => void;
+}) {
+  const canGenerate =
+    state.prompt.trim().length > 0 && !isGenerating && speakerIssues.length === 0;
+  const characterCount = state.prompt.trim().length;
+  const languageLabel =
+    MVP_LANGUAGES.find((language) => language.id === state.languageCode)?.label ??
+    "Auto-detect";
+
+  const speakerSummary =
+    state.mode === "multi"
+      ? state.speakers
+          .map((speaker) => {
+            const voice =
+              MVP_VOICES.find((item) => item.id === speaker.voice)?.displayName ??
+              speaker.voice;
+            return `${speaker.speaker_id || "Speaker"}: ${voice}`;
+          })
+          .join(" | ")
+      : selectedVoice.displayName;
+
+  return (
+    <section className="space-y-3">
+      <div>
+        <h2 className="font-heading text-lg font-semibold">Generate</h2>
+        <p className="text-xs text-muted-foreground">
+          Review the selected voice model, script size, and estimate.
+        </p>
+      </div>
+
+      <div className="grid gap-2 rounded-lg border border-border bg-card p-3 text-sm">
+        <div className="flex items-start justify-between gap-3">
+          <span className="text-muted-foreground">Voice model</span>
+          <span className="text-right font-medium">{speakerSummary}</span>
+        </div>
+        <div className="flex items-start justify-between gap-3">
+          <span className="text-muted-foreground">Language</span>
+          <span className="text-right font-medium">{languageLabel}</span>
+        </div>
+        <div className="flex items-start justify-between gap-3">
+          <span className="text-muted-foreground">Output</span>
+          <span className="text-right font-medium">
+            {state.outputFormat.toUpperCase()} at creativity {state.temperature.toFixed(1)}
+          </span>
+        </div>
+        <div className="flex items-start justify-between gap-3">
+          <span className="text-muted-foreground">Credits</span>
+          <span className="text-right font-medium">
+            {characterCount.toLocaleString()} chars - {formatCost(estimatePromptCost(state.prompt))}
+          </span>
+        </div>
+      </div>
+
+      {generationError ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-800">
+          <div className="flex items-start gap-2">
+            <AlertCircle size={16} className="mt-0.5" aria-hidden="true" />
+            <div>
+              <p className="font-semibold">{generationError.code}</p>
+              <p>{generationError.message}</p>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="grid gap-2">
+        <Button
+          type="button"
+          disabled={!canGenerate}
+          onClick={onGenerate}
+          className="w-full bg-theme-gradient-button text-white shadow-[0_4px_16px_rgba(31,76,238,0.22)] hover:brightness-105"
+        >
+          {isGenerating ? "Generating..." : "Generate Audio"}
+        </Button>
+        <Button type="button" variant="outline" onClick={onSaveScript}>
+          <Save size={14} aria-hidden="true" />
+          Save script
+        </Button>
+        {!state.prompt.trim() ? (
+          <span className="text-xs text-muted-foreground">
+            Add a script to enable generation.
+          </span>
+        ) : null}
+        {speakerIssues.length > 0 ? (
+          <span className="text-xs text-red-700">{speakerIssues[0]}</span>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function AudioPlayer({
+  generation,
+  audio,
+  onRegenerate,
+  onClose,
+}: {
+  generation: LocalGeneration;
+  audio: ReturnType<typeof useAudioManager>;
+  onRegenerate: () => void;
+  onClose: () => void;
+}) {
+  const source = {
+    id: `result:${generation.id}`,
+    kind: "result" as const,
+    url: generation.audioUrl,
+    label: generation.fileName ?? "Generated audio",
+  };
+  const isActive = audio.state.activeId === source.id;
+  const isPlaying = isActive && audio.state.isPlaying;
+  const duration = audio.state.duration || 0;
+
+  return (
+    <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 px-4 py-3 backdrop-blur">
+      <div className="mx-auto flex max-w-7xl flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <Button
+            type="button"
+            size="icon"
+            className="bg-theme-primary text-white hover:bg-theme-primary-hover"
+            onClick={() => audio.toggle(source)}
+            aria-label={isPlaying ? "Pause generated audio" : "Play generated audio"}
+          >
+            {isPlaying ? <Pause size={16} /> : <Play size={16} />}
+          </Button>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold">
+              {generation.fileName ?? "Generated speech"}
+            </p>
+            <div className="flex items-center gap-2">
+              <span className="w-10 text-xs text-muted-foreground">
+                {formatTime(isActive ? audio.state.currentTime : 0)}
+              </span>
+              <input
+                className="w-full accent-[#3353FE]"
+                type="range"
+                min={0}
+                max={duration || 0}
+                step={0.1}
+                value={isActive ? audio.state.currentTime : 0}
+                onChange={(event) => audio.seek(Number(event.target.value))}
+              />
+              <span className="w-10 text-xs text-muted-foreground">
+                {formatTime(duration)}
+              </span>
+            </div>
+            {isActive && audio.state.error ? (
+              <p className="text-xs text-red-700">{audio.state.error}</p>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Volume2 size={15} className="text-muted-foreground" aria-hidden="true" />
+          <input
+            className="w-20 accent-[#3353FE]"
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={audio.state.volume}
+            onChange={(event) => audio.setVolume(Number(event.target.value))}
+            aria-label="Audio volume"
+          />
+          <a
+            className="inline-flex h-7 items-center justify-center gap-1 rounded-md border border-border bg-background px-2.5 text-[0.8rem] font-medium transition hover:bg-muted"
+            href={generation.audioUrl}
+            download
+            target="_blank"
+            rel="noreferrer"
+          >
+            <Download size={14} aria-hidden="true" />
+            Download
+          </a>
+          <Button type="button" variant="outline" size="sm" onClick={onRegenerate}>
+            <RotateCcw size={14} aria-hidden="true" />
+            Regenerate
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={onClose}
+            aria-label="Close audio player"
+          >
+            <X size={14} aria-hidden="true" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function TTSStudio() {
+  const [hydrated, setHydrated] = useState(false);
+  const [state, setState] = useState<StudioState>(defaultStudioState);
+  const [scripts, setScripts] = useState<LocalScript[]>([]);
+  const [generations, setGenerations] = useState<LocalGeneration[]>([]);
+  const [activeGeneration, setActiveGeneration] = useState<LocalGeneration | undefined>();
+
+  const audio = useAudioManager();
+  const preview = useVoicePreview(audio);
+  const generation = useTTSGeneration();
+
+  const selectedVoice = useMemo(
+    () => MVP_VOICES.find((voice) => voice.id === state.voiceId) ?? MVP_VOICES[0],
+    [state.voiceId],
+  );
+
+  const speakerIssues = useMemo(() => {
+    if (state.mode !== "multi") {
+      return [];
+    }
+
+    const issues: string[] = [];
+    const aliases = state.speakers.map((speaker) => speaker.speaker_id.trim());
+
+    if (state.speakers.length !== 2) {
+      issues.push("Multi-speaker mode requires exactly two speakers.");
+    }
+
+    aliases.forEach((alias, index) => {
+      if (!/^[A-Za-z0-9]+$/.test(alias)) {
+        issues.push(`Speaker ${index + 1} alias must be alphanumeric.`);
+      }
+    });
+
+    if (new Set(aliases).size !== aliases.length) {
+      issues.push("Speaker aliases must be unique.");
+    }
+
+    return issues;
+  }, [state.mode, state.speakers]);
+
+  const promptHasSpeakerPrefixes = useCallback(
+    (prompt: string, speakers: StudioState["speakers"]) =>
+      speakers.some((speaker) =>
+        new RegExp(`(^|\\n)${speaker.speaker_id}:`, "i").test(prompt),
+      ),
+    [],
+  );
+
+  const changeMode = useCallback(
+    (mode: StudioState["mode"]) => {
+      setState((current) => {
+        if (current.mode === mode) {
+          return current;
+        }
+
+        if (
+          mode === "multi" &&
+          current.prompt.trim() &&
+          !promptHasSpeakerPrefixes(current.prompt, current.speakers)
+        ) {
+          return {
+            ...current,
+            mode,
+            prompt: `${current.speakers[0]?.speaker_id ?? "Speaker1"}: ${current.prompt}\n${current.speakers[1]?.speaker_id ?? "Speaker2"}:`,
+          };
+        }
+
+        return { ...current, mode };
+      });
+    },
+    [promptHasSpeakerPrefixes],
+  );
+
+  useEffect(() => {
+    void Promise.resolve().then(() => {
+      setState(clientStore.getSettings(defaultStudioState));
+      setScripts(clientStore.listScripts());
+      const storedGenerations = clientStore.listGenerations();
+      setGenerations(storedGenerations);
+      setActiveGeneration(storedGenerations[0]);
+      setHydrated(true);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (hydrated) {
+      clientStore.saveSettings(state);
+    }
+  }, [hydrated, state]);
+
+  useEffect(() => {
+    if (
+      audio.state.activeKind === "preview" &&
+      audio.state.activeId &&
+      audio.state.error
+    ) {
+      preview.markPreviewError(audio.state.activeId.replace("preview:", ""));
+    }
+  }, [audio.state.activeId, audio.state.activeKind, audio.state.error, preview]);
+
+  const saveScript = useCallback(() => {
+    const now = new Date().toISOString();
+    const firstLine = state.prompt.split("\n").find(Boolean)?.slice(0, 48);
+    const script: LocalScript = {
+      id: makeLocalId("script"),
+      title: firstLine || "Untitled script",
+      prompt: state.prompt,
+      styleInstructions: state.styleInstructions,
+      mode: state.mode,
+      voiceId: state.voiceId,
+      languageCode: state.languageCode,
+      outputFormat: state.outputFormat,
+      temperature: state.temperature,
+      accentPreset: state.accentPreset,
+      tonePreset: state.tonePreset,
+      pacePreset: state.pacePreset,
+      createdAt: now,
+      updatedAt: now,
+    };
+    clientStore.upsertScript(script);
+    setScripts(clientStore.listScripts());
+  }, [state]);
+
+  const runGenerate = useCallback(() => {
+    const providerLanguage = toProviderLanguageCode(state.languageCode);
+    const styleInstructions = composeStyleInstructions(state);
+    const baseRequest = {
+      prompt: state.prompt,
+      style_instructions: styleInstructions,
+      provider: "gemini" as const,
+      output_format: state.outputFormat,
+      temperature: state.temperature,
+      ...(providerLanguage ? { language_code: providerLanguage } : {}),
+    };
+    const request =
+      state.mode === "multi"
+        ? {
+            ...baseRequest,
+            mode: "multi" as const,
+            speakers: state.speakers.map((speaker) => ({
+              speaker_id: speaker.speaker_id.trim(),
+              voice: speaker.voice,
+            })),
+          }
+        : {
+            ...baseRequest,
+            mode: "single" as const,
+            voice: state.voiceId,
+          };
+
+    void generation.generate(request).then((item) => {
+      if (item) {
+        setActiveGeneration(item);
+        setGenerations(clientStore.listGenerations());
+      }
+    });
+  }, [generation, state]);
+
+  const loadScript = useCallback((script: LocalScript) => {
+    setState((current) => ({
+      ...current,
+      prompt: script.prompt,
+      styleInstructions: script.styleInstructions,
+      mode: script.mode,
+      voiceId: script.voiceId ?? current.voiceId,
+      languageCode: script.languageCode ?? current.languageCode,
+      outputFormat: script.outputFormat ?? current.outputFormat,
+      temperature: script.temperature ?? current.temperature,
+      accentPreset: script.accentPreset ?? current.accentPreset,
+      tonePreset: script.tonePreset ?? current.tonePreset,
+      pacePreset: script.pacePreset ?? current.pacePreset,
+    }));
+  }, []);
+
+  const loadGeneration = useCallback((item: LocalGeneration) => {
+    setActiveGeneration(item);
+    setState((current) => ({
+      ...current,
+      prompt: item.prompt,
+      styleInstructions: item.styleInstructions ?? "",
+      voiceId: item.voiceId ?? current.voiceId,
+      languageCode: item.languageCode ?? current.languageCode,
+      outputFormat: item.outputFormat ?? current.outputFormat,
+      temperature: item.temperature ?? current.temperature,
+    }));
+  }, []);
+
+  return (
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(50,183,238,0.10),transparent_28%),linear-gradient(180deg,rgba(51,83,254,0.04),transparent_280px)] pb-28 text-foreground">
+      <TopBar
+        mode={state.mode}
+        characterCount={state.prompt.length}
+        onModeChange={changeMode}
+      />
+      <div className="mx-auto grid max-w-7xl gap-5 px-4 py-5 lg:grid-cols-[minmax(0,1fr)_390px] sm:px-6">
+        <section className="rounded-lg border border-border bg-background/88 p-4 shadow-sm sm:p-5">
+          <StudioControls
+            state={state}
+            speakerIssues={speakerIssues}
+            onChange={setState}
+          />
+        </section>
+
+        <div className="space-y-5">
+          <section className="rounded-lg border border-border bg-background/88 p-4 shadow-sm">
+            <VoiceCatalog
+              mode={state.mode}
+              selectedVoiceId={state.voiceId}
+              preview={preview}
+              onSelect={(voiceId) => setState({ ...state, voiceId })}
+            />
+          </section>
+          <section className="rounded-lg border border-border bg-background/88 p-4 shadow-sm">
+            <GenerationPanel
+              state={state}
+              selectedVoice={selectedVoice}
+              speakerIssues={speakerIssues}
+              generationError={generation.error}
+              isGenerating={generation.isGenerating}
+              onGenerate={runGenerate}
+              onSaveScript={saveScript}
+            />
+          </section>
+          <section className="rounded-lg border border-border bg-background/88 p-4 shadow-sm">
+            <LocalHistoryPanel
+              generations={generations}
+              scripts={scripts}
+              onLoadScript={loadScript}
+              onLoadGeneration={loadGeneration}
+            />
+          </section>
+        </div>
+      </div>
+
+      {activeGeneration ? (
+        <AudioPlayer
+          generation={activeGeneration}
+          audio={audio}
+          onRegenerate={runGenerate}
+          onClose={() => {
+            audio.stop();
+            setActiveGeneration(undefined);
+          }}
+        />
+      ) : null}
+    </main>
+  );
+}
