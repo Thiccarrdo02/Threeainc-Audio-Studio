@@ -13,7 +13,9 @@ import {
   Search,
   SlidersHorizontal,
   Sparkles,
+  UserRoundCheck,
   Volume2,
+  Wand2,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -32,12 +34,13 @@ import { Button } from "@/components/ui/button";
 import { useAudioManager } from "@/hooks/use-audio-manager";
 import { useTTSGeneration } from "@/hooks/use-tts-generation";
 import { useVoicePreview } from "@/hooks/use-voice-preview";
-import { estimatePromptCost } from "@/lib/cost";
+import { estimatePromptCredits, formatCredits } from "@/lib/cost";
 import { clientStore, makeLocalId } from "@/lib/client-store";
 import type {
   LanguageOption,
   LocalGeneration,
   LocalScript,
+  Speaker,
   StudioState,
   TTSOutputFormat,
   Voice,
@@ -108,8 +111,69 @@ function formatTime(seconds: number) {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
-function formatCost(value: number) {
-  return `$${value.toFixed(4)}`;
+function getVoiceName(voiceId: string) {
+  return MVP_VOICES.find((voice) => voice.id === voiceId)?.displayName ?? voiceId;
+}
+
+function speakerButtonLabel(speaker: Speaker, index: number) {
+  const alias = speaker.speaker_id || `Speaker${index + 1}`;
+  return `${alias} - ${getVoiceName(speaker.voice)}`;
+}
+
+function hasLeadingAudioTag(text: string) {
+  return /^\s*(?:[A-Za-z0-9]+:\s*)?\[[^\]]+\]/.test(text);
+}
+
+function addTagAfterSpeakerPrefix(line: string, tag: string) {
+  const match = line.match(/^(\s*[A-Za-z0-9]+:\s*)(.*)$/);
+  if (match) {
+    return `${match[1]}${tag} ${match[2].trimStart()}`;
+  }
+
+  return `${tag} ${line.trimStart()}`;
+}
+
+function autoMarkupLine(line: string) {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return line;
+  }
+
+  let next = line.replace(/\s*\.\.\.\s*/g, " [long pause] ");
+  if (hasLeadingAudioTag(next)) {
+    return next;
+  }
+
+  const lower = trimmed.toLowerCase();
+  const isLoud = /(!{2,}|urgent|now|stop|look out|watch out)/i.test(trimmed);
+  const isLaughing = /(haha|lol|funny|joke|laugh|hilarious|smiled?)/i.test(trimmed);
+  const isSigh = /(sorry|unfortunately|tired|exhausted|sad|miss you|bad news)/i.test(trimmed);
+  const isWhisper = /(secret|quietly|keep this between us|listen closely)/i.test(trimmed);
+  const isSarcastic = /(yeah right|as if|obviously|sure, because)/i.test(lower);
+  const isHesitation = /^(?:[A-Za-z0-9]+:\s*)?(well|um|uh|hmm|actually)\b/i.test(trimmed);
+
+  if (isSarcastic) {
+    next = addTagAfterSpeakerPrefix(next, "[sarcasm]");
+  } else if (isWhisper) {
+    next = addTagAfterSpeakerPrefix(next, "[whispering]");
+  } else if (isLoud) {
+    next = addTagAfterSpeakerPrefix(next, "[shouting]");
+  } else if (isLaughing) {
+    next = addTagAfterSpeakerPrefix(next, "[laughing]");
+  } else if (isSigh) {
+    next = addTagAfterSpeakerPrefix(next, "[sigh]");
+  } else if (isHesitation) {
+    next = addTagAfterSpeakerPrefix(next, "[uhm]");
+  }
+
+  return next.replace(/\s{2,}/g, " ").trimEnd();
+}
+
+function autoMarkupPrompt(prompt: string) {
+  return prompt
+    .split("\n")
+    .map((line) => autoMarkupLine(line))
+    .join("\n");
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
@@ -178,11 +242,11 @@ function TopBar({
   );
 }
 
-function CostEstimator({ prompt }: { prompt: string }) {
+function CreditEstimator({ prompt }: { prompt: string }) {
   return (
     <div className="flex items-center gap-2 text-xs text-muted-foreground">
       <Sparkles size={14} aria-hidden="true" />
-      <span>Estimated cost {formatCost(estimatePromptCost(prompt))}</span>
+      <span>Estimated {formatCredits(estimatePromptCredits(prompt))}</span>
     </div>
   );
 }
@@ -206,37 +270,72 @@ function TagInserter({ onInsert }: { onInsert: (tag: string) => void }) {
 
 function ScriptEditor({
   prompt,
+  mode,
+  speakers,
   onPromptChange,
 }: {
   prompt: string;
+  mode: StudioState["mode"];
+  speakers: Speaker[];
   onPromptChange: (value: string) => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const insertTag = useCallback((tag: string) => {
+  const insertText = useCallback((text: string, forceLineStart = false) => {
     const textarea = textareaRef.current;
     if (!textarea) {
-      onPromptChange(`${prompt}${prompt ? " " : ""}${tag} `);
+      onPromptChange(`${prompt}${prompt && forceLineStart ? "\n" : ""}${text}`);
       return;
     }
 
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
-    const next = `${prompt.slice(0, start)}${tag} ${prompt.slice(end)}`;
+    const needsLeadingBreak =
+      forceLineStart && start > 0 && prompt[start - 1] !== "\n";
+    const insertion = `${needsLeadingBreak ? "\n" : ""}${text}`;
+    const next = `${prompt.slice(0, start)}${insertion}${prompt.slice(end)}`;
     onPromptChange(next);
     window.requestAnimationFrame(() => {
       textarea.focus();
-      const cursor = start + tag.length + 1;
+      const cursor = start + insertion.length;
       textarea.setSelectionRange(cursor, cursor);
     });
+  }, [onPromptChange, prompt]);
+
+  const insertTag = useCallback((tag: string) => {
+    insertText(`${tag} `);
+  }, [insertText]);
+
+  const insertSpeaker = useCallback((speaker: Speaker) => {
+    const alias = speaker.speaker_id || "Speaker";
+    insertText(`${alias}: `, true);
+  }, [insertText]);
+
+  const autoAddExpressions = useCallback(() => {
+    onPromptChange(autoMarkupPrompt(prompt));
   }, [onPromptChange, prompt]);
 
   return (
     <section className="space-y-2">
       <div className="flex items-center justify-between gap-3">
         <FieldLabel>Script</FieldLabel>
-        <CostEstimator prompt={prompt} />
+        <CreditEstimator prompt={prompt} />
       </div>
+      {mode === "multi" ? (
+        <div className="flex flex-wrap gap-1.5">
+          {speakers.map((speaker, index) => (
+            <button
+              key={`${speaker.speaker_id}-${index}`}
+              type="button"
+              className="inline-flex items-center gap-1 rounded border border-theme-primary bg-[rgba(51,83,254,0.08)] px-2 py-1 text-xs font-medium text-theme-primary transition hover:bg-[rgba(51,83,254,0.14)]"
+              onClick={() => insertSpeaker(speaker)}
+            >
+              <UserRoundCheck size={12} aria-hidden="true" />
+              {speakerButtonLabel(speaker, index)}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <textarea
         ref={textareaRef}
         className="min-h-[260px] w-full resize-y rounded-lg border border-border bg-card px-3 py-3 text-sm leading-6 outline-none transition placeholder:text-muted-foreground/70 focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
@@ -250,6 +349,21 @@ function ScriptEditor({
           Long scripts may reduce quality. Consider splitting.
         </div>
       ) : null}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={autoAddExpressions}
+          disabled={!prompt.trim()}
+        >
+          <Wand2 size={14} aria-hidden="true" />
+          Auto-add expressions
+        </Button>
+        <span className="text-xs text-muted-foreground">
+          Adds reliable local audio tags from the script context.
+        </span>
+      </div>
       <TagInserter onInsert={insertTag} />
     </section>
   );
@@ -322,6 +436,8 @@ function StudioControls({
 
       <ScriptEditor
         prompt={state.prompt}
+        mode={state.mode}
+        speakers={state.speakers}
         onPromptChange={(prompt) => onChange({ ...state, prompt })}
       />
 
@@ -444,8 +560,10 @@ function MultiSpeakerBuilder({
   return (
     <section className="space-y-2">
       <div className="flex items-center justify-between gap-3">
-        <FieldLabel>Speaker Builder</FieldLabel>
-        <span className="text-xs text-muted-foreground">Exactly 2 speakers</span>
+        <FieldLabel>Speaker Labels</FieldLabel>
+        <span className="text-xs text-muted-foreground">
+          Voices are assigned from the catalog.
+        </span>
       </div>
       <div className="grid gap-2 sm:grid-cols-2">
         {speakers.map((speaker, index) => (
@@ -458,7 +576,7 @@ function MultiSpeakerBuilder({
                 Speaker {index + 1}
               </p>
               <span className="truncate text-xs text-muted-foreground">
-                Prefix: {speaker.speaker_id || "Alias"}:
+                {getVoiceName(speaker.voice)}
               </span>
             </div>
             <div className="grid gap-2">
@@ -470,20 +588,6 @@ function MultiSpeakerBuilder({
                 }
                 aria-label={`Speaker ${index + 1} alias`}
               />
-              <select
-                className="h-9 rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
-                value={speaker.voice}
-                onChange={(event) =>
-                  updateSpeaker(index, { voice: event.target.value })
-                }
-                aria-label={`Speaker ${index + 1} voice`}
-              >
-                {MVP_VOICES.map((voice) => (
-                  <option key={voice.id} value={voice.id}>
-                    {voice.displayName}
-                  </option>
-                ))}
-              </select>
             </div>
           </div>
         ))}
@@ -494,7 +598,7 @@ function MultiSpeakerBuilder({
         </div>
       ) : (
         <p className="text-xs text-muted-foreground">
-          Use each alias as a prompt prefix, for example `Speaker1:`.
+          Click the speaker chips above the script box to insert prefixes.
         </p>
       )}
     </section>
@@ -504,20 +608,26 @@ function MultiSpeakerBuilder({
 function VoiceCard({
   voice,
   selected,
+  assignedSpeakerIndexes,
   active,
   isPlaying,
   error,
   previewDisabledReason,
+  mode,
   onSelect,
+  onAssignSpeaker,
   onPreview,
 }: {
   voice: Voice;
   selected: boolean;
+  assignedSpeakerIndexes: number[];
   active: boolean;
   isPlaying: boolean;
   error?: string;
   previewDisabledReason?: string;
+  mode: StudioState["mode"];
   onSelect: () => void;
+  onAssignSpeaker: (index: number) => void;
   onPreview: () => void;
 }) {
   const previewError = previewDisabledReason ?? error;
@@ -580,6 +690,25 @@ function VoiceCard({
           </span>
         ))}
       </div>
+      {mode === "multi" ? (
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          {[0, 1].map((index) => {
+            const assigned = assignedSpeakerIndexes.includes(index);
+            return (
+              <Button
+                key={index}
+                type="button"
+                size="sm"
+                variant={assigned ? "default" : "outline"}
+                className={assigned ? "bg-theme-primary text-white" : ""}
+                onClick={() => onAssignSpeaker(index)}
+              >
+                Speaker {index + 1}
+              </Button>
+            );
+          })}
+        </div>
+      ) : null}
       {previewError ? (
         <p className="mt-2 text-xs text-muted-foreground">{previewError}</p>
       ) : null}
@@ -592,13 +721,17 @@ type PreviewLanguage = (typeof PREVIEW_LANGUAGE_OPTIONS)[number]["value"];
 function VoiceCatalog({
   mode,
   selectedVoiceId,
+  speakers,
   preview,
   onSelect,
+  onAssignSpeaker,
 }: {
   mode: StudioState["mode"];
   selectedVoiceId: string;
+  speakers: Speaker[];
   preview: ReturnType<typeof useVoicePreview>;
   onSelect: (voiceId: string) => void;
+  onAssignSpeaker: (speakerIndex: number, voiceId: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const [genderFilter, setGenderFilter] = useState<"all" | VoiceGender>("all");
@@ -738,16 +871,27 @@ function VoiceCatalog({
               <VoiceCard
                 key={voice.id}
                 voice={voice}
-                selected={mode === "single" && selectedVoiceId === voice.id}
+                selected={
+                  mode === "single"
+                    ? selectedVoiceId === voice.id
+                    : speakers.some((speaker) => speaker.voice === voice.id)
+                }
+                assignedSpeakerIndexes={speakers.flatMap((speaker, index) =>
+                  speaker.voice === voice.id ? [index] : [],
+                )}
                 active={preview.activePreviewId === voice.id}
                 isPlaying={preview.isPlaying}
                 error={preview.errors[voice.id]}
                 previewDisabledReason={previewDisabledReason}
+                mode={mode}
                 onSelect={() => {
                   if (mode === "single") {
                     onSelect(voice.id);
                   }
                 }}
+                onAssignSpeaker={(speakerIndex) =>
+                  onAssignSpeaker(speakerIndex, voice.id)
+                }
                 onPreview={() => preview.preview(voice)}
               />
             );
@@ -869,7 +1013,7 @@ function GenerationPanel({
       <div>
         <h2 className="font-heading text-lg font-semibold">Generate</h2>
         <p className="text-xs text-muted-foreground">
-          Review the selected voice model, script size, and estimate.
+          Review the selected voice model, script size, and ThreeZinc credits.
         </p>
       </div>
 
@@ -891,7 +1035,8 @@ function GenerationPanel({
         <div className="flex items-start justify-between gap-3">
           <span className="text-muted-foreground">Credits</span>
           <span className="text-right font-medium">
-            {characterCount.toLocaleString()} chars - {formatCost(estimatePromptCost(state.prompt))}
+            {characterCount.toLocaleString()} chars -{" "}
+            {formatCredits(estimatePromptCredits(state.prompt))}
           </span>
         </div>
       </div>
@@ -1245,8 +1390,17 @@ export function TTSStudio() {
             <VoiceCatalog
               mode={state.mode}
               selectedVoiceId={state.voiceId}
+              speakers={state.speakers}
               preview={preview}
               onSelect={(voiceId) => setState({ ...state, voiceId })}
+              onAssignSpeaker={(speakerIndex, voiceId) =>
+                setState((current) => ({
+                  ...current,
+                  speakers: current.speakers.map((speaker, index) =>
+                    index === speakerIndex ? { ...speaker, voice: voiceId } : speaker,
+                  ),
+                }))
+              }
             />
           </section>
           <section className="rounded-lg border border-border bg-background/88 p-4 shadow-sm">

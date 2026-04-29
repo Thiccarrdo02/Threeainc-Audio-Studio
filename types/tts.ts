@@ -50,6 +50,7 @@ export interface TTSGenerateResponse {
   requestId?: string;
   characterCount: number;
   estimatedCost: number;
+  estimatedCredits: number;
 }
 
 export interface TTSApiError {
@@ -96,6 +97,7 @@ export interface LocalGeneration {
   fileSize?: number;
   characterCount: number;
   estimatedCost: number;
+  estimatedCredits: number;
   createdAt: string;
 }
 

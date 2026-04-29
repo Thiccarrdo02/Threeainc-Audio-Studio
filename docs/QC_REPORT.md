@@ -21,6 +21,13 @@ Date: 2026-04-28
 - Hindi audition mode shows the static-preview boundary message.
 - Language selector includes Hindi and Indian language options.
 - Accent, tone, pace, output format, and creativity controls update state.
+- ThreeZinc credits are shown instead of USD.
+- Credit estimates use the 0.5 credit minimum and 0.5 credit increments.
+- Automatic expression markup inserts contextual local tags.
+- Expanded expression tags are available.
+- Switching from single to multi keeps the pasted text only under Speaker 1 and creates a blank Speaker 2 line.
+- Speaker 1 and Speaker 2 voices are assigned from the Voice Catalog.
+- Speaker chips above the script editor insert dialogue prefixes.
 - Generate panel appears after the voice catalog.
 - Generate panel shows selected voice model, language, output format, character count, and estimated credits.
 - Expressive tag buttons insert text into the script editor.

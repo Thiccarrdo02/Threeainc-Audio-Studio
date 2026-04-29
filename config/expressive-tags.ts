@@ -1,11 +1,18 @@
 export const EXPRESSIVE_TAGS = [
   "[laughing]",
   "[sigh]",
+  "[uhm]",
   "[whispering]",
+  "[shouting]",
+  "[sarcasm]",
+  "[robotic]",
   "[excited]",
   "[slowly]",
   "[fast]",
+  "[extremely fast]",
   "[short pause]",
+  "[medium pause]",
+  "[long pause]",
   "[dramatic]",
   "[cheerfully]",
 ] as const;

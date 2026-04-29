@@ -1,7 +1,11 @@
 import { fal } from "@fal-ai/client";
 import { NextResponse } from "next/server";
 
-import { countBillableCharacters, estimateCharacterCost } from "@/lib/cost";
+import {
+  countBillableCharacters,
+  estimateCharacterCredits,
+  estimateFalCostUsd,
+} from "@/lib/cost";
 import {
   isProviderNotImplemented,
   validateTTSRequest,
@@ -209,7 +213,8 @@ export async function POST(request: Request) {
       audio: data.audio,
       requestId: result.requestId,
       characterCount,
-      estimatedCost: estimateCharacterCost(characterCount),
+      estimatedCost: estimateFalCostUsd(characterCount),
+      estimatedCredits: estimateCharacterCredits(characterCount),
     };
 
     return NextResponse.json(response);

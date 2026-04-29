@@ -84,6 +84,7 @@ export function useTTSGeneration() {
         fileSize: data.audio.file_size,
         characterCount: data.characterCount,
         estimatedCost: data.estimatedCost,
+        estimatedCredits: data.estimatedCredits,
         createdAt: new Date().toISOString(),
       };
 

@@ -9,14 +9,17 @@ Local-first text-to-speech studio for creating polished voice audio with Fal/Gem
 - Exactly-two-speaker dialogue generation.
 - 30 selectable Fal/Gemini voice models.
 - Voice catalog search, gender filter, tone filter, and local-preview filter.
+- Multi-speaker voice assignment from the catalog with Speaker 1 and Speaker 2 assignment buttons.
+- Speaker chips above the script editor for inserting dialogue prefixes while writing.
 - Featured Indian language workflow with Hindi, English India, Marathi, Tamil, Telugu, Gujarati, Kannada, Malayalam, and Punjabi options.
 - Accent presets: Neutral, Indian English, Native Hindi, North Indian, South Indian, American, British, and Australian.
 - Tone presets: Natural, Studio Ad, Explainer, Podcast, News, Social Reel, Meditation, and Dramatic.
 - Pace presets: Slow, Steady, and Fast.
 - Creativity slider mapped to Fal/Gemini `temperature`.
 - Output format selector for `mp3`, `wav`, and `ogg_opus`.
-- Expressive tag insertion for tags like `[laughing]`, `[whispering]`, `[excited]`, and `[short pause]`.
-- Estimated credit/cost display based on billable characters.
+- Expanded expressive tag insertion for tags like `[laughing]`, `[uhm]`, `[whispering]`, `[shouting]`, `[sarcasm]`, `[medium pause]`, and `[long pause]`.
+- Local automatic expression markup based on script context.
+- ThreeZinc credit estimates with a 0.5 credit minimum and 0.5 credit increments.
 - Browser-local saved scripts, settings, and generation history.
 - Sticky generated-audio player with play, pause, seek, volume, regenerate, close, and direct provider download.
 
@@ -80,7 +83,9 @@ npm.cmd run build
 - `config/voices.ts` - voice catalog.
 - `config/languages.ts` - language catalog.
 - `config/style-presets.ts` - accent, tone, and pace presets.
+- `config/pricing.ts` - ThreeZinc credit constants.
 - `lib/client-store.ts` - browser persistence adapter.
+- `lib/cost.ts` - character and credit estimation.
 - `lib/tts-validation.ts` - request validation.
 - `tests/contracts.test.mjs` - contract and boundary tests.
 - `docs/QC_REPORT.md` - latest quality-control report.
@@ -89,4 +94,3 @@ npm.cmd run build
 ## Environment Safety
 
 `.env.local` is intentionally ignored by git. Do not commit real provider keys.
-

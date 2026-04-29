@@ -75,11 +75,14 @@ test("core MVP configuration remains intact", async () => {
     assert.ok(stylePresets.includes(preset), `${preset} preset missing`);
   }
 
-  for (const tag of ["[laughing]", "[sigh]", "[whispering]", "[excited]", "[slowly]", "[fast]", "[short pause]", "[dramatic]", "[cheerfully]"]) {
+  for (const tag of ["[laughing]", "[sigh]", "[uhm]", "[whispering]", "[shouting]", "[sarcasm]", "[robotic]", "[excited]", "[slowly]", "[fast]", "[extremely fast]", "[short pause]", "[medium pause]", "[long pause]", "[dramatic]", "[cheerfully]"]) {
     assert.ok(tags.includes(tag), `${tag} missing`);
   }
 
-  assert.match(pricing, /COST_PER_1K_CHARS\s*=\s*0\.15/);
+  assert.match(pricing, /FAL_COST_PER_1K_CHARACTERS_USD\s*=\s*0\.15/);
+  assert.match(pricing, /THREEZINC_MARKUP_MULTIPLIER\s*=\s*1\.25/);
+  assert.match(pricing, /THREEZINC_CREDITS_PER_USD\s*=\s*20/);
+  assert.match(pricing, /MINIMUM_THREEZINC_CREDITS\s*=\s*0\.5/);
 });
 
 test("secret stays out of client/source files", async () => {
