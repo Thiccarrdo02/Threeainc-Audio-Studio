@@ -20,7 +20,8 @@ Sources:
 
 - Add Voice API: `POST /v1/voices/add`
 - Voice Changer API: `POST /v1/speech-to-speech/:voice_id`
-- Voice Design API: `POST /v1/text-to-voice/create-previews`, then `POST /v1/text-to-voice`
+- Voice Design API: `POST /v1/text-to-voice/design`, then `POST /v1/text-to-voice`
+- Reference-audio Voice Design API: `POST /v1/text-to-voice/design` with `eleven_ttv_v3`, `reference_audio_base64`, and typed preview text.
 - Voice Remix API: `POST /v1/text-to-voice/:voice_id/remix`, then `POST /v1/text-to-voice`
 
 ## Local Data Model
@@ -57,6 +58,7 @@ Stored in `.local/custom-voices.json`:
 
 - `GET /api/custom-voices` lists local custom voices.
 - `POST /api/custom-voices/clone` uploads one or more audio samples and creates an instant clone.
+- `POST /api/custom-voices/instant-text` uploads one reference sample and target text to create same-voice preview audio without saving a clone first.
 - `POST /api/custom-voices/voice-changer` converts uploaded performance audio into the selected custom voice.
 - `POST /api/custom-voices/design` creates voice-design previews from a text description.
 - `POST /api/custom-voices/remix` creates voice-remix previews from an owned voice.
@@ -69,6 +71,7 @@ Add a separate Voice Cloning Lab tab beside the main TTS Studio tab:
 
 - Voice Library: local list with selected voice, source badge, refresh, delete.
 - Instant Clone: name, description, metadata labels, styled audio uploader, sample cleanup toggle, consent checkbox, create button feedback.
+- Instant Text: upload one reference voice, type 100-1000 characters, set prompt influence/loudness/quality/guidance/seed, generate preview audio, download or save chosen voice.
 - Voice Changer: target voice summary, styled source-performance uploader, output format, seed, cleanup toggle, stability, similarity, style, speed, speaker boost, conversion output player.
 - Voice Design: prompt chips, loudness, quality, guidance, seed, previews, save chosen preview.
 - Voice Remix: remix selected custom voice with prompt-strength slider, previews, save variant.
@@ -78,6 +81,7 @@ Add a separate Voice Cloning Lab tab beside the main TTS Studio tab:
 - Do not expose `ELEVENLABS_API_KEY` to the browser.
 - Do not commit `.env.local` or `.local/custom-voices.json`.
 - Do not write voice-changer output audio to local files.
+- Do not write instant reference voice text preview audio to local files.
 - Require a consent checkbox before any clone upload.
 - Delete custom voices through the provider delete endpoint when the user deletes a local voice.
 

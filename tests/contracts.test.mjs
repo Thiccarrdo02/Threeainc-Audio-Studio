@@ -106,6 +106,7 @@ test("secret stays out of client/source files", async () => {
   const sourceFiles = [
     "app/api/tts/generate/route.ts",
     "app/api/custom-voices/clone/route.ts",
+    "app/api/custom-voices/instant-text/route.ts",
     "app/api/custom-voices/voice-changer/route.ts",
     "app/api/custom-voices/design/route.ts",
     "app/api/custom-voices/remix/route.ts",
@@ -156,6 +157,10 @@ test("storage and provider boundaries are documented in code", async () => {
   assert.equal(customLab.includes("/api/custom-voices/generate"), false);
   assert.equal(customLab.includes("Custom Voice TTS"), false);
   assert.match(customLab, /VOICE_CONSENT_REQUIRED|I own this voice or have permission/);
+  assert.match(customLab, /Instant Text/);
+  assert.match(customLab, /\/api\/custom-voices\/instant-text/);
+  assert.match(customLab, /Upload reference voice/);
+  assert.match(customLab, /Generate voice text/);
   assert.match(customLab, /Voice Changer/);
   assert.match(customLab, /Voice Design/);
   assert.match(customLab, /Voice Remix/);

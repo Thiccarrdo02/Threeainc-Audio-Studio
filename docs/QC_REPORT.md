@@ -45,7 +45,7 @@ Date: 2026-05-01
 - Browser console is clean during smoke tests.
 - Vercel deployment config and deployment checklist are present.
 - Voice Cloning Lab is separated from the main Fal/Gemini TTS workspace.
-- Voice Cloning Lab renders local ElevenLabs clone, voice changer, design, and remix workflows.
+- Voice Cloning Lab renders local ElevenLabs clone, instant text, voice changer, design, and remix workflows.
 - Voice changer output remains transient browser audio and is not written to local project files.
 
 ## Security and Storage Checks

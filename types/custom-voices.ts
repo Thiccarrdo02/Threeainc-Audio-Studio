@@ -1,4 +1,8 @@
-export type CustomVoiceSource = "instant-clone" | "voice-design" | "voice-remix";
+export type CustomVoiceSource =
+  | "instant-clone"
+  | "instant-text"
+  | "voice-design"
+  | "voice-remix";
 
 export interface ElevenLabsVoiceSettings {
   stability: number;

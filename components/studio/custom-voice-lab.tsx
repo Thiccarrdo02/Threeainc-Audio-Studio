@@ -29,10 +29,11 @@ import {
   type VoicePreviewCandidate,
 } from "@/types/custom-voices";
 
-type LabMode = "clone" | "changer" | "design" | "remix";
+type LabMode = "clone" | "instant-text" | "changer" | "design" | "remix";
 type BusyAction =
   | "refresh"
   | "clone"
+  | "instant-text"
   | "changer"
   | "design"
   | "remix"
@@ -66,6 +67,9 @@ const REMIX_PROMPTS = [
 function labelSource(source: CustomVoiceSource) {
   if (source === "instant-clone") {
     return "Clone";
+  }
+  if (source === "instant-text") {
+    return "Instant Text";
   }
   if (source === "voice-remix") {
     return "Remix";
@@ -503,19 +507,29 @@ function PreviewGrid({
               ) : null}
             </div>
             <audio className="w-full" controls src={preview.audioDataUrl} />
-            <Button
-              type="button"
-              size="sm"
-              disabled={busy || !canSave}
-              onClick={() => onSave(preview)}
-            >
-              {busy ? (
-                <Loader2 size={14} className="animate-spin" aria-hidden="true" />
-              ) : (
-                <BadgeCheck size={14} aria-hidden="true" />
-              )}
-              Save voice
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <a
+                className="inline-flex h-7 items-center justify-center gap-1 rounded-md border border-border bg-background px-2.5 text-[0.8rem] font-medium transition hover:bg-muted"
+                href={preview.audioDataUrl}
+                download={`threezinc-voice-preview-${index + 1}.mp3`}
+              >
+                <Download size={14} aria-hidden="true" />
+                Download
+              </a>
+              <Button
+                type="button"
+                size="sm"
+                disabled={busy || !canSave}
+                onClick={() => onSave(preview)}
+              >
+                {busy ? (
+                  <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                ) : (
+                  <BadgeCheck size={14} aria-hidden="true" />
+                )}
+                Save voice
+              </Button>
+            </div>
           </div>
         ))}
       </div>
@@ -545,6 +559,17 @@ export function CustomVoiceLab() {
   const [labelAccent, setLabelAccent] = useState("");
   const [labelGender, setLabelGender] = useState("");
   const [labelUseCase, setLabelUseCase] = useState("creator");
+
+  const [instantReferenceFiles, setInstantReferenceFiles] = useState<File[]>([]);
+  const [instantText, setInstantText] = useState("");
+  const [instantDescription, setInstantDescription] = useState(
+    "Match the uploaded reference speaker, preserving their accent, tone, and natural pacing.",
+  );
+  const [instantPromptStrength, setInstantPromptStrength] = useState(0.35);
+  const [instantLoudness, setInstantLoudness] = useState(0.5);
+  const [instantQuality, setInstantQuality] = useState(0.9);
+  const [instantGuidance, setInstantGuidance] = useState(5);
+  const [instantSeed, setInstantSeed] = useState("");
 
   const [voiceChangerFile, setVoiceChangerFile] = useState<File[]>([]);
   const [removeNoise, setRemoveNoise] = useState(true);
@@ -580,6 +605,12 @@ export function CustomVoiceLab() {
     cloneDescription.trim().length >= 10 &&
     cloneFiles.length > 0 &&
     cloneConsent;
+  const canInstantText =
+    !busy &&
+    instantReferenceFiles.length === 1 &&
+    instantDescription.trim().length >= 20 &&
+    instantText.trim().length >= 100 &&
+    instantText.trim().length <= 1000;
   const canConvert =
     !busy && Boolean(selectedVoiceId) && voiceChangerFile.length === 1;
   const canDesign = !busy && designDescription.trim().length >= 20;
@@ -626,7 +657,12 @@ export function CustomVoiceLab() {
       try {
         await action();
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : "Request failed.");
+        const message = caught instanceof Error ? caught.message : "Request failed.";
+        setError(
+          /subscription.*instant voice cloning/i.test(message)
+            ? `${message} Use Instant Text for upload-and-generate without saving an Instant Voice Clone.`
+            : message,
+        );
       } finally {
         setBusyAction(null);
       }
@@ -682,6 +718,55 @@ export function CustomVoiceLab() {
     labelLanguage,
     labelUseCase,
     refreshVoices,
+    runAction,
+  ]);
+
+  const createInstantTextPreviews = useCallback(() => {
+    void runAction("instant-text", async () => {
+      const formData = new FormData();
+      formData.set("description", instantDescription.trim());
+      formData.set("text", instantText.trim());
+      formData.set("outputFormat", outputFormat);
+      formData.set("promptStrength", String(instantPromptStrength));
+      formData.set("loudness", String(instantLoudness));
+      formData.set("quality", String(instantQuality));
+      formData.set("guidanceScale", String(instantGuidance));
+      if (instantSeed) {
+        formData.set("seed", instantSeed);
+      }
+      if (instantReferenceFiles[0]) {
+        formData.set(
+          "referenceAudio",
+          instantReferenceFiles[0],
+          instantReferenceFiles[0].name,
+        );
+      }
+
+      const response = await fetch("/api/custom-voices/instant-text", {
+        method: "POST",
+        body: formData,
+      });
+      if (!response.ok) {
+        throw new Error(await readError(response));
+      }
+      const data = (await response.json()) as {
+        previews: VoicePreviewCandidate[];
+      };
+      setPreviews(data.previews);
+      setPreviewSource("instant-text");
+      setSaveDescription(instantDescription.trim());
+      setStatus("Generated reference voice text previews.");
+    });
+  }, [
+    instantDescription,
+    instantGuidance,
+    instantLoudness,
+    instantPromptStrength,
+    instantQuality,
+    instantReferenceFiles,
+    instantSeed,
+    instantText,
+    outputFormat,
     runAction,
   ]);
 
@@ -877,9 +962,10 @@ export function CustomVoiceLab() {
         />
 
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-card p-1 text-sm sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-card p-1 text-sm sm:grid-cols-5">
             {[
               ["clone", "Clone"],
+              ["instant-text", "Instant Text"],
               ["changer", "Voice Changer"],
               ["design", "Design"],
               ["remix", "Remix"],
@@ -1052,6 +1138,155 @@ export function CustomVoiceLab() {
                   </span>
                 ) : null}
               </div>
+            </section>
+          ) : null}
+
+          {mode === "instant-text" ? (
+            <section className="space-y-4 rounded-lg border border-border bg-background/90 p-4 shadow-sm">
+              <div className="flex items-center gap-2">
+                <Sparkles className="size-4 text-theme-primary" aria-hidden="true" />
+                <h2 className="font-heading text-lg font-semibold">
+                  Instant Voice Text
+                </h2>
+              </div>
+
+              <div className="rounded-lg border border-border bg-card px-3 py-3 text-sm text-muted-foreground">
+                Upload one reference voice, type the exact words you want spoken,
+                and generate matching voice previews without saving an Instant Voice
+                Clone first.
+              </div>
+
+              <AudioUploadField
+                label="Reference voice"
+                description="Upload reference voice"
+                files={instantReferenceFiles}
+                onFiles={(files) => setInstantReferenceFiles(files.slice(0, 1))}
+                onRemove={() => setInstantReferenceFiles([])}
+              />
+
+              <div className="space-y-1.5">
+                <FieldLabel>Target text</FieldLabel>
+                <textarea
+                  className="min-h-36 w-full resize-y rounded-md border border-border bg-card px-3 py-2 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+                  value={instantText}
+                  onChange={(event) => setInstantText(event.target.value)}
+                  placeholder="Type 100-1000 characters for the uploaded voice to say."
+                />
+                <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                  <span>
+                    {instantText.trim().length < 100
+                      ? "Needs at least 100 characters."
+                      : "Ready length."}
+                  </span>
+                  <span>{instantText.trim().length}/1000</span>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <FieldLabel>Voice matching direction</FieldLabel>
+                <textarea
+                  className="min-h-20 w-full resize-y rounded-md border border-border bg-card px-3 py-2 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+                  value={instantDescription}
+                  onChange={(event) => setInstantDescription(event.target.value)}
+                  placeholder="Describe the reference speaker and how closely to preserve accent, tone, age, and pacing."
+                />
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <SliderField
+                  label="Prompt Influence"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={instantPromptStrength}
+                  onChange={setInstantPromptStrength}
+                />
+                <SliderField
+                  label="Loudness"
+                  min={-1}
+                  max={1}
+                  step={0.05}
+                  value={instantLoudness}
+                  onChange={setInstantLoudness}
+                />
+                <SliderField
+                  label="Quality"
+                  min={-1}
+                  max={1}
+                  step={0.05}
+                  value={instantQuality}
+                  onChange={setInstantQuality}
+                />
+                <SliderField
+                  label="Guidance"
+                  min={0}
+                  max={20}
+                  step={0.5}
+                  value={instantGuidance}
+                  onChange={setInstantGuidance}
+                />
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <FieldLabel>Output</FieldLabel>
+                  <select
+                    className="h-9 w-full rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+                    value={outputFormat}
+                    onChange={(event) => setOutputFormat(event.target.value)}
+                  >
+                    {OUTPUT_OPTIONS.map((format) => (
+                      <option key={format.id} value={format.id}>
+                        {format.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <FieldLabel>Seed</FieldLabel>
+                  <input
+                    className="h-9 w-full rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+                    value={instantSeed}
+                    onChange={(event) =>
+                      setInstantSeed(event.target.value.replace(/\D/g, ""))
+                    }
+                    placeholder="Optional"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Button
+                  type="button"
+                  className="bg-theme-gradient-button text-white shadow-[0_4px_16px_rgba(31,76,238,0.22)] hover:brightness-105"
+                  disabled={!canInstantText}
+                  onClick={createInstantTextPreviews}
+                >
+                  {busyAction === "instant-text" ? (
+                    <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Sparkles size={14} aria-hidden="true" />
+                  )}
+                  {busyAction === "instant-text"
+                    ? "Generating..."
+                    : "Generate voice text"}
+                </Button>
+                {!canInstantText ? (
+                  <span className="text-xs text-muted-foreground">
+                    Upload one reference file and enter 100-1000 characters.
+                  </span>
+                ) : null}
+              </div>
+
+              <PreviewGrid
+                previews={previewSource === "instant-text" ? previews : []}
+                saveName={saveName}
+                saveDescription={saveDescription}
+                busy={busyAction === "save"}
+                onSaveNameChange={setSaveName}
+                onSaveDescriptionChange={setSaveDescription}
+                onSave={savePreview}
+              />
             </section>
           ) : null}
 

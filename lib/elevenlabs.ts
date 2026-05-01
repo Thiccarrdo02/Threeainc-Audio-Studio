@@ -186,24 +186,43 @@ function mapPreviewCandidate(
 
 export async function designVoicePreviews({
   description,
+  text,
+  referenceAudioBase64,
+  promptStrength,
   loudness,
   quality,
   guidanceScale,
   seed,
+  modelId = "eleven_multilingual_ttv_v2",
+  outputFormat = "mp3_44100_128",
 }: {
   description: string;
+  text?: string;
+  referenceAudioBase64?: string;
+  promptStrength?: number;
   loudness?: number;
   quality?: number;
   guidanceScale?: number;
   seed?: number;
+  modelId?: "eleven_multilingual_ttv_v2" | "eleven_ttv_v3";
+  outputFormat?: string;
 }) {
+  const params = new URLSearchParams({ output_format: outputFormat });
   const response = await elevenLabsFetch(
-    "/v1/text-to-voice/create-previews?output_format=mp3_44100_128",
+    `/v1/text-to-voice/design?${params.toString()}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         voice_description: description,
+        model_id: modelId,
+        ...(text ? { text } : { auto_generate_text: true }),
+        ...(referenceAudioBase64
+          ? { reference_audio_base64: referenceAudioBase64 }
+          : {}),
+        ...(typeof promptStrength === "number"
+          ? { prompt_strength: promptStrength }
+          : {}),
         ...(typeof loudness === "number" ? { loudness } : {}),
         ...(typeof quality === "number" ? { quality } : {}),
         ...(typeof guidanceScale === "number"
@@ -225,6 +244,45 @@ export async function designVoicePreviews({
       mapPreviewCandidate(preview, data.text),
     ),
   };
+}
+
+export async function instantTextVoicePreviews({
+  description,
+  text,
+  referenceAudio,
+  promptStrength,
+  loudness,
+  quality,
+  guidanceScale,
+  seed,
+  outputFormat,
+}: {
+  description: string;
+  text: string;
+  referenceAudio: File;
+  promptStrength?: number;
+  loudness?: number;
+  quality?: number;
+  guidanceScale?: number;
+  seed?: number;
+  outputFormat?: string;
+}) {
+  const referenceAudioBase64 = Buffer.from(
+    await referenceAudio.arrayBuffer(),
+  ).toString("base64");
+
+  return designVoicePreviews({
+    description,
+    text,
+    referenceAudioBase64,
+    promptStrength,
+    loudness,
+    quality,
+    guidanceScale,
+    seed,
+    outputFormat,
+    modelId: "eleven_ttv_v3",
+  });
 }
 
 export async function remixVoicePreviews({
