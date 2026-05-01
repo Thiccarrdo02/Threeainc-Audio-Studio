@@ -1,0 +1,462 @@
+{
+  "generatedAt": "2026-05-01T02:58:16.628Z",
+  "model": "fal-ai/gemini-3.1-flash-tts",
+  "voices": [
+    "Achernar",
+    "Achird",
+    "Algenib",
+    "Algieba",
+    "Alnilam",
+    "Aoede",
+    "Autonoe",
+    "Callirrhoe",
+    "Charon",
+    "Despina",
+    "Enceladus",
+    "Erinome",
+    "Fenrir",
+    "Gacrux",
+    "Iapetus",
+    "Kore",
+    "Laomedeia",
+    "Leda",
+    "Orus",
+    "Pulcherrima",
+    "Puck",
+    "Rasalgethi",
+    "Sadachbia",
+    "Sadaltager",
+    "Schedar",
+    "Sulafat",
+    "Umbriel",
+    "Vindemiatrix",
+    "Zephyr",
+    "Zubenelgenubi"
+  ],
+  "languages": [
+    "en",
+    "hi"
+  ],
+  "files": [
+    {
+      "voice": "Achernar",
+      "language": "en",
+      "path": "public/previews/en/Achernar.mp3",
+      "skipped": true,
+      "bytes": 72237
+    },
+    {
+      "voice": "Achernar",
+      "language": "hi",
+      "path": "public/previews/hi/Achernar.mp3",
+      "skipped": true,
+      "bytes": 71853
+    },
+    {
+      "voice": "Achird",
+      "language": "en",
+      "path": "public/previews/en/Achird.mp3",
+      "skipped": true,
+      "bytes": 66477
+    },
+    {
+      "voice": "Achird",
+      "language": "hi",
+      "path": "public/previews/hi/Achird.mp3",
+      "skipped": true,
+      "bytes": 68397
+    },
+    {
+      "voice": "Algenib",
+      "language": "en",
+      "path": "public/previews/en/Algenib.mp3",
+      "skipped": true,
+      "bytes": 68397
+    },
+    {
+      "voice": "Algenib",
+      "language": "hi",
+      "path": "public/previews/hi/Algenib.mp3",
+      "skipped": true,
+      "bytes": 73773
+    },
+    {
+      "voice": "Algieba",
+      "language": "en",
+      "path": "public/previews/en/Algieba.mp3",
+      "skipped": true,
+      "bytes": 71853
+    },
+    {
+      "voice": "Algieba",
+      "language": "hi",
+      "path": "public/previews/hi/Algieba.mp3",
+      "skipped": true,
+      "bytes": 77997
+    },
+    {
+      "voice": "Alnilam",
+      "language": "en",
+      "path": "public/previews/en/Alnilam.mp3",
+      "skipped": true,
+      "bytes": 74925
+    },
+    {
+      "voice": "Alnilam",
+      "language": "hi",
+      "path": "public/previews/hi/Alnilam.mp3",
+      "skipped": true,
+      "bytes": 63405
+    },
+    {
+      "voice": "Aoede",
+      "language": "en",
+      "path": "public/previews/en/Aoede.mp3",
+      "skipped": true,
+      "bytes": 68397
+    },
+    {
+      "voice": "Aoede",
+      "language": "hi",
+      "path": "public/previews/hi/Aoede.mp3",
+      "skipped": true,
+      "bytes": 70317
+    },
+    {
+      "voice": "Autonoe",
+      "language": "en",
+      "path": "public/previews/en/Autonoe.mp3",
+      "skipped": true,
+      "bytes": 69933
+    },
+    {
+      "voice": "Autonoe",
+      "language": "hi",
+      "path": "public/previews/hi/Autonoe.mp3",
+      "skipped": true,
+      "bytes": 70317
+    },
+    {
+      "voice": "Callirrhoe",
+      "language": "en",
+      "path": "public/previews/en/Callirrhoe.mp3",
+      "skipped": true,
+      "bytes": 69165
+    },
+    {
+      "voice": "Callirrhoe",
+      "language": "hi",
+      "path": "public/previews/hi/Callirrhoe.mp3",
+      "skipped": true,
+      "bytes": 74157
+    },
+    {
+      "voice": "Charon",
+      "language": "en",
+      "path": "public/previews/en/Charon.mp3",
+      "skipped": true,
+      "bytes": 69933
+    },
+    {
+      "voice": "Charon",
+      "language": "hi",
+      "path": "public/previews/hi/Charon.mp3",
+      "skipped": true,
+      "bytes": 66093
+    },
+    {
+      "voice": "Despina",
+      "language": "en",
+      "path": "public/previews/en/Despina.mp3",
+      "skipped": true,
+      "bytes": 70317
+    },
+    {
+      "voice": "Despina",
+      "language": "hi",
+      "path": "public/previews/hi/Despina.mp3",
+      "skipped": true,
+      "bytes": 73005
+    },
+    {
+      "voice": "Enceladus",
+      "language": "en",
+      "path": "public/previews/en/Enceladus.mp3",
+      "skipped": true,
+      "bytes": 75693
+    },
+    {
+      "voice": "Enceladus",
+      "language": "hi",
+      "path": "public/previews/hi/Enceladus.mp3",
+      "skipped": true,
+      "bytes": 71085
+    },
+    {
+      "voice": "Erinome",
+      "language": "en",
+      "path": "public/previews/en/Erinome.mp3",
+      "skipped": true,
+      "bytes": 79917
+    },
+    {
+      "voice": "Erinome",
+      "language": "hi",
+      "path": "public/previews/hi/Erinome.mp3",
+      "skipped": true,
+      "bytes": 66093
+    },
+    {
+      "voice": "Fenrir",
+      "language": "en",
+      "path": "public/previews/en/Fenrir.mp3",
+      "skipped": true,
+      "bytes": 66093
+    },
+    {
+      "voice": "Fenrir",
+      "language": "hi",
+      "path": "public/previews/hi/Fenrir.mp3",
+      "skipped": true,
+      "bytes": 69165
+    },
+    {
+      "voice": "Gacrux",
+      "language": "en",
+      "path": "public/previews/en/Gacrux.mp3",
+      "skipped": true,
+      "bytes": 71853
+    },
+    {
+      "voice": "Gacrux",
+      "language": "hi",
+      "path": "public/previews/hi/Gacrux.mp3",
+      "skipped": true,
+      "bytes": 70317
+    },
+    {
+      "voice": "Iapetus",
+      "language": "en",
+      "path": "public/previews/en/Iapetus.mp3",
+      "skipped": true,
+      "bytes": 66477
+    },
+    {
+      "voice": "Iapetus",
+      "language": "hi",
+      "path": "public/previews/hi/Iapetus.mp3",
+      "skipped": true,
+      "bytes": 64557
+    },
+    {
+      "voice": "Kore",
+      "language": "en",
+      "path": "public/previews/en/Kore.mp3",
+      "skipped": true,
+      "bytes": 76845
+    },
+    {
+      "voice": "Kore",
+      "language": "hi",
+      "path": "public/previews/hi/Kore.mp3",
+      "skipped": true,
+      "bytes": 77997
+    },
+    {
+      "voice": "Laomedeia",
+      "language": "en",
+      "path": "public/previews/en/Laomedeia.mp3",
+      "skipped": true,
+      "bytes": 72237
+    },
+    {
+      "voice": "Laomedeia",
+      "language": "hi",
+      "path": "public/previews/hi/Laomedeia.mp3",
+      "skipped": true,
+      "bytes": 63405
+    },
+    {
+      "voice": "Leda",
+      "language": "en",
+      "path": "public/previews/en/Leda.mp3",
+      "skipped": true,
+      "bytes": 68397
+    },
+    {
+      "voice": "Leda",
+      "language": "hi",
+      "path": "public/previews/hi/Leda.mp3",
+      "skipped": true,
+      "bytes": 68013
+    },
+    {
+      "voice": "Orus",
+      "language": "en",
+      "path": "public/previews/en/Orus.mp3",
+      "skipped": true,
+      "bytes": 67245
+    },
+    {
+      "voice": "Orus",
+      "language": "hi",
+      "path": "public/previews/hi/Orus.mp3",
+      "skipped": true,
+      "bytes": 73773
+    },
+    {
+      "voice": "Pulcherrima",
+      "language": "en",
+      "path": "public/previews/en/Pulcherrima.mp3",
+      "skipped": true,
+      "bytes": 71853
+    },
+    {
+      "voice": "Pulcherrima",
+      "language": "hi",
+      "path": "public/previews/hi/Pulcherrima.mp3",
+      "skipped": true,
+      "bytes": 61485
+    },
+    {
+      "voice": "Puck",
+      "language": "en",
+      "path": "public/previews/en/Puck.mp3",
+      "skipped": true,
+      "bytes": 70317
+    },
+    {
+      "voice": "Puck",
+      "language": "hi",
+      "path": "public/previews/hi/Puck.mp3",
+      "skipped": true,
+      "bytes": 60717
+    },
+    {
+      "voice": "Rasalgethi",
+      "language": "en",
+      "path": "public/previews/en/Rasalgethi.mp3",
+      "skipped": true,
+      "bytes": 72237
+    },
+    {
+      "voice": "Rasalgethi",
+      "language": "hi",
+      "path": "public/previews/hi/Rasalgethi.mp3",
+      "skipped": true,
+      "bytes": 66477
+    },
+    {
+      "voice": "Sadachbia",
+      "language": "en",
+      "path": "public/previews/en/Sadachbia.mp3",
+      "skipped": true,
+      "bytes": 71085
+    },
+    {
+      "voice": "Sadachbia",
+      "language": "hi",
+      "path": "public/previews/hi/Sadachbia.mp3",
+      "skipped": true,
+      "bytes": 78765
+    },
+    {
+      "voice": "Sadaltager",
+      "language": "en",
+      "path": "public/previews/en/Sadaltager.mp3",
+      "skipped": true,
+      "bytes": 74157
+    },
+    {
+      "voice": "Sadaltager",
+      "language": "hi",
+      "path": "public/previews/hi/Sadaltager.mp3",
+      "skipped": true,
+      "bytes": 80685
+    },
+    {
+      "voice": "Schedar",
+      "language": "en",
+      "path": "public/previews/en/Schedar.mp3",
+      "skipped": true,
+      "bytes": 65325
+    },
+    {
+      "voice": "Schedar",
+      "language": "hi",
+      "path": "public/previews/hi/Schedar.mp3",
+      "skipped": true,
+      "bytes": 64557
+    },
+    {
+      "voice": "Sulafat",
+      "language": "en",
+      "path": "public/previews/en/Sulafat.mp3",
+      "skipped": true,
+      "bytes": 71085
+    },
+    {
+      "voice": "Sulafat",
+      "language": "hi",
+      "path": "public/previews/hi/Sulafat.mp3",
+      "skipped": true,
+      "bytes": 71085
+    },
+    {
+      "voice": "Umbriel",
+      "language": "en",
+      "path": "public/previews/en/Umbriel.mp3",
+      "skipped": true,
+      "bytes": 72237
+    },
+    {
+      "voice": "Umbriel",
+      "language": "hi",
+      "path": "public/previews/hi/Umbriel.mp3",
+      "skipped": true,
+      "bytes": 72237
+    },
+    {
+      "voice": "Vindemiatrix",
+      "language": "en",
+      "path": "public/previews/en/Vindemiatrix.mp3",
+      "skipped": true,
+      "bytes": 75693
+    },
+    {
+      "voice": "Vindemiatrix",
+      "language": "hi",
+      "path": "public/previews/hi/Vindemiatrix.mp3",
+      "skipped": true,
+      "bytes": 74157
+    },
+    {
+      "voice": "Zephyr",
+      "language": "en",
+      "path": "public/previews/en/Zephyr.mp3",
+      "skipped": true,
+      "bytes": 74925
+    },
+    {
+      "voice": "Zephyr",
+      "language": "hi",
+      "path": "public/previews/hi/Zephyr.mp3",
+      "skipped": true,
+      "bytes": 65325
+    },
+    {
+      "voice": "Zubenelgenubi",
+      "language": "en",
+      "path": "public/previews/en/Zubenelgenubi.mp3",
+      "skipped": true,
+      "bytes": 71085
+    },
+    {
+      "voice": "Zubenelgenubi",
+      "language": "hi",
+      "path": "public/previews/hi/Zubenelgenubi.mp3",
+      "skipped": true,
+      "bytes": 64173
+    }
+  ]
+}

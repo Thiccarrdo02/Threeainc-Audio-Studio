@@ -1,24 +1,37 @@
 # Preview Assets
 
-Phase 1 seeds the MVP voice previews as local WAV files under `public/previews/`.
-Runtime preview playback must use these local files directly and must not fetch
+Voice previews are owned ThreeZinc static MP3 files under `public/previews/`.
+Runtime preview playback uses these local files directly and must not fetch
 Google or Fal URLs in the browser.
 
-## Seed Sources
+## Current Asset Set
 
-These files were downloaded once from Google Cloud's public Gemini-TTS demo
-assets for local development:
+- English previews: `public/previews/en/{Voice}.mp3`
+- Hindi previews: `public/previews/hi/{Voice}.mp3`
+- Manifest: `public/previews/manifest.json`
 
-| Voice | Source URL | Local File |
-| --- | --- | --- |
-| Kore | `https://docs.cloud.google.com/static/text-to-speech/docs/audio/chirp3-hd-kore.wav` | `public/previews/Kore.wav` |
-| Puck | `https://docs.cloud.google.com/static/text-to-speech/docs/audio/chirp3-hd-puck.wav` | `public/previews/Puck.wav` |
-| Charon | `https://docs.cloud.google.com/static/text-to-speech/docs/audio/chirp3-hd-charon.wav` | `public/previews/Charon.wav` |
-| Zephyr | `https://docs.cloud.google.com/static/text-to-speech/docs/audio/chirp3-hd-zephyr.wav` | `public/previews/Zephyr.wav` |
-| Aoede | `https://docs.cloud.google.com/static/text-to-speech/docs/audio/chirp3-hd-aoeda.wav` | `public/previews/Aoede.wav` |
+The current set covers all 30 Fal/Gemini voices in the catalog, with one
+English MP3 and one Hindi MP3 for each voice.
 
-The Aoede source filename is `aoeda`; keep the app-facing local file named
-`Aoede.wav` to match the provider voice ID.
+## Generation Utility
 
-Before product launch, replace these seed files with owned ThreeZinc preview
-assets if licensing review requires it.
+Use this local utility to regenerate missing preview assets:
+
+```powershell
+node scripts\generate-voice-previews.mjs
+```
+
+Use `--force` to regenerate existing MP3s. The script reads `FAL_KEY` from
+`.env.local` or the process environment and never writes the key to disk.
+
+English prompt:
+
+```text
+Welcome to ThreeZinc platform, [expression] Audio Studio.
+```
+
+Hindi prompt:
+
+```text
+थ्रीज़िंक प्लेटफॉर्म के ऑडियो स्टूडियो में [expression] आपका स्वागत है।
+```

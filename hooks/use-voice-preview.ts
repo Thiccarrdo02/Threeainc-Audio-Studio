@@ -6,33 +6,37 @@ import type { AudioSource, useAudioManager } from "@/hooks/use-audio-manager";
 import type { Voice } from "@/types/tts";
 
 type AudioManager = ReturnType<typeof useAudioManager>;
+export type PreviewLanguage = "english" | "hindi";
 
 export function useVoicePreview(audioManager: AudioManager) {
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const preview = useCallback((voice: Voice) => {
-    if (!voice.previewUrl) {
+  const preview = useCallback((voice: Voice, language: PreviewLanguage) => {
+    const previewUrl = voice.previewUrls[language] || voice.previewUrl;
+    const previewId = `${voice.id}:${language}`;
+
+    if (!previewUrl) {
       setErrors((current) => ({
         ...current,
-        [voice.id]: "Static preview asset is not available yet.",
+        [previewId]: "Static preview asset is not available yet.",
       }));
       return;
     }
 
     const source: AudioSource = {
-      id: `preview:${voice.id}`,
+      id: `preview:${previewId}`,
       kind: "preview",
-      url: voice.previewUrl,
-      label: `${voice.displayName} preview`,
+      url: previewUrl,
+      label: `${voice.displayName} ${language} preview`,
     };
 
     audioManager.toggle(source);
   }, [audioManager]);
 
-  const markPreviewError = useCallback((voiceId: string) => {
+  const markPreviewError = useCallback((previewId: string) => {
     setErrors((current) => ({
       ...current,
-      [voiceId]: "Preview file is missing or could not be played.",
+      [previewId]: "Preview file is missing or could not be played.",
     }));
   }, []);
 

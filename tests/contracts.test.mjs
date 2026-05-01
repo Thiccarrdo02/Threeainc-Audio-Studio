@@ -24,10 +24,19 @@ test("static preview contract is preserved", async () => {
     "preview API route must not exist",
   );
 
-  for (const voice of ["Kore", "Puck", "Charon", "Zephyr", "Aoede"]) {
-    const file = join(root, "public/previews", `${voice}.wav`);
-    const fileStat = await stat(file);
-    assert.ok(fileStat.size > 1000, `${voice} preview should be a real local WAV`);
+  const manifest = JSON.parse(await read("public/previews/manifest.json"));
+  assert.deepEqual(manifest.languages, ["en", "hi"]);
+  assert.equal(manifest.voices.length, 30);
+
+  for (const voice of manifest.voices) {
+    for (const language of ["en", "hi"]) {
+      const file = join(root, "public/previews", language, `${voice}.mp3`);
+      const fileStat = await stat(file);
+      assert.ok(
+        fileStat.size > 10000,
+        `${voice}/${language} preview should be a real local MP3`,
+      );
+    }
   }
 });
 
@@ -52,9 +61,9 @@ test("core MVP configuration remains intact", async () => {
     assert.match(voices, new RegExp(`id: "${voice}"`));
   }
 
-  for (const voice of ["Kore", "Puck", "Charon", "Zephyr", "Aoede"]) {
-    assert.match(voices, new RegExp(`localPreviewVoices.*${voice}`, "s"));
-  }
+  assert.match(voices, /previewUrls/);
+  assert.match(voices, /\/previews\/en\/\$\{voice\.id\}\.mp3/);
+  assert.match(voices, /\/previews\/hi\/\$\{voice\.id\}\.mp3/);
 
   for (const language of [
     "Auto-detect",
@@ -94,6 +103,7 @@ test("secret stays out of client/source files", async () => {
     "app/api/tts/generate/route.ts",
     "components/studio/tts-studio.tsx",
     "hooks/use-tts-generation.ts",
+    "scripts/generate-voice-previews.mjs",
     "lib/client-store.ts",
     "docs/phase-4-handoff.md",
   ];
@@ -118,6 +128,8 @@ test("storage and provider boundaries are documented in code", async () => {
   assert.match(store, /localStorage/);
   assert.match(route, /process\.env\.FAL_KEY/);
   assert.match(route, /export const maxDuration = 60/);
+  assert.match(route, /createStudioFileName/);
+  assert.match(route, /threezinc-studio/);
   assert.equal(route.includes("NEXT_PUBLIC_FAL_KEY"), false);
 });
 

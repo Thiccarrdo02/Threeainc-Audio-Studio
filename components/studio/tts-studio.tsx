@@ -33,7 +33,7 @@ import { MVP_VOICES } from "@/config/voices";
 import { Button } from "@/components/ui/button";
 import { useAudioManager } from "@/hooks/use-audio-manager";
 import { useTTSGeneration } from "@/hooks/use-tts-generation";
-import { useVoicePreview } from "@/hooks/use-voice-preview";
+import { useVoicePreview, type PreviewLanguage } from "@/hooks/use-voice-preview";
 import { estimatePromptCredits, formatCredits } from "@/lib/cost";
 import { clientStore, makeLocalId } from "@/lib/client-store";
 import type {
@@ -77,7 +77,7 @@ const OUTPUT_FORMAT_OPTIONS: Array<{
 
 const PREVIEW_LANGUAGE_OPTIONS = [
   { value: "english", label: "English previews" },
-  { value: "hindi", label: "Hindi audition" },
+  { value: "hindi", label: "Hindi previews" },
 ] as const;
 
 function clampAccentStrength(value: number) {
@@ -843,8 +843,6 @@ function VoiceCard({
   );
 }
 
-type PreviewLanguage = (typeof PREVIEW_LANGUAGE_OPTIONS)[number]["value"];
-
 function VoiceCatalog({
   mode,
   selectedVoiceId,
@@ -863,7 +861,6 @@ function VoiceCatalog({
   const [query, setQuery] = useState("");
   const [genderFilter, setGenderFilter] = useState<"all" | VoiceGender>("all");
   const [toneFilter, setToneFilter] = useState("all");
-  const [previewFilter, setPreviewFilter] = useState("all");
   const [previewLanguage, setPreviewLanguage] =
     useState<PreviewLanguage>("english");
 
@@ -889,12 +886,10 @@ function VoiceCatalog({
         genderFilter === "all" || voice.gender === genderFilter;
       const matchesTone =
         toneFilter === "all" || voice.tones.includes(toneFilter);
-      const matchesPreview =
-        previewFilter === "all" || Boolean(voice.previewUrl);
 
-      return matchesQuery && matchesGender && matchesTone && matchesPreview;
+      return matchesQuery && matchesGender && matchesTone;
     });
-  }, [genderFilter, previewFilter, query, toneFilter]);
+  }, [genderFilter, query, toneFilter]);
 
   return (
     <aside className="space-y-3">
@@ -906,7 +901,7 @@ function VoiceCatalog({
           </span>
         </div>
         <p className="text-xs text-muted-foreground">
-          All Fal/Gemini voices are selectable. Local static previews exist for seeded voices.
+          All Fal/Gemini voices include local English and Hindi MP3 previews.
         </p>
       </div>
       <div className="space-y-2">
@@ -951,16 +946,7 @@ function VoiceCatalog({
             ))}
           </select>
           <select
-            className="h-9 rounded-md border border-border bg-card px-2 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
-            value={previewFilter}
-            onChange={(event) => setPreviewFilter(event.target.value)}
-            aria-label="Filter by preview availability"
-          >
-            <option value="all">All voices</option>
-            <option value="local">Local preview ready</option>
-          </select>
-          <select
-            className="h-9 rounded-md border border-border bg-card px-2 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+            className="h-9 rounded-md border border-border bg-card px-2 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20 sm:col-span-2"
             value={previewLanguage}
             onChange={(event) =>
               setPreviewLanguage(event.target.value as PreviewLanguage)
@@ -974,11 +960,6 @@ function VoiceCatalog({
             ))}
           </select>
         </div>
-        {previewLanguage === "hindi" ? (
-          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            Hindi and Indian-language generation are enabled. Hindi static preview assets need owned local files before instant preview playback.
-          </div>
-        ) : null}
       </div>
       <div className="grid max-h-[360px] gap-2 overflow-y-auto pr-1 lg:max-h-[360px]">
         {filteredVoices.length === 0 ? (
@@ -987,12 +968,7 @@ function VoiceCatalog({
           </div>
         ) : (
           filteredVoices.map((voice) => {
-            const previewDisabledReason =
-              previewLanguage === "hindi"
-                ? "Hindi instant preview needs a local Hindi preview asset."
-                : voice.previewUrl
-                  ? undefined
-                  : "Static preview pending. Select and generate to audition.";
+            const previewId = `${voice.id}:${previewLanguage}`;
 
             return (
               <VoiceCard
@@ -1006,10 +982,9 @@ function VoiceCatalog({
                 assignedSpeakerIndexes={speakers.flatMap((speaker, index) =>
                   speaker.voice === voice.id ? [index] : [],
                 )}
-                active={preview.activePreviewId === voice.id}
+                active={preview.activePreviewId === previewId}
                 isPlaying={preview.isPlaying}
-                error={preview.errors[voice.id]}
-                previewDisabledReason={previewDisabledReason}
+                error={preview.errors[previewId]}
                 mode={mode}
                 onSelect={() => {
                   if (mode === "single") {
@@ -1019,7 +994,7 @@ function VoiceCatalog({
                 onAssignSpeaker={(speakerIndex) =>
                   onAssignSpeaker(speakerIndex, voice.id)
                 }
-                onPreview={() => preview.preview(voice)}
+                onPreview={() => preview.preview(voice, previewLanguage)}
               />
             );
           })
@@ -1045,7 +1020,7 @@ function LocalHistoryPanel({
       <div>
         <h2 className="font-heading text-lg font-semibold">Local History</h2>
         <p className="text-xs text-muted-foreground">
-          Browser-stored metadata only.
+          Saved on this browser as provider URLs and metadata only.
         </p>
       </div>
 
@@ -1282,7 +1257,7 @@ function AudioPlayer({
           <a
             className="inline-flex h-7 items-center justify-center gap-1 rounded-md border border-border bg-background px-2.5 text-[0.8rem] font-medium transition hover:bg-muted"
             href={generation.audioUrl}
-            download
+            download={generation.fileName ?? "threezinc-studio-audio.mp3"}
             target="_blank"
             rel="noreferrer"
           >

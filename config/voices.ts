@@ -38,14 +38,16 @@ const voiceMeta: Array<{
   { id: "Zubenelgenubi", gender: "Male", description: "Distinct, characterful voice for memorable scripts.", tones: ["distinct", "character", "memorable"] },
 ];
 
-const localPreviewVoices = new Set(["Aoede", "Charon", "Kore", "Puck", "Zephyr"]);
-
 export const ALL_VOICES = voiceMeta.map((voice) => ({
   ...voice,
   displayName: voice.id,
   accent: "Multilingual",
-  previewText: "Welcome to ThreeZinc Audio Studio.",
-  previewUrl: localPreviewVoices.has(voice.id) ? `/previews/${voice.id}.wav` : "",
+  previewText: "Welcome to ThreeZinc platform, Audio Studio.",
+  previewUrl: `/previews/en/${voice.id}.mp3`,
+  previewUrls: {
+    english: `/previews/en/${voice.id}.mp3`,
+    hindi: `/previews/hi/${voice.id}.mp3`,
+  },
   enabledInMvp: true,
 })) satisfies Voice[];
 

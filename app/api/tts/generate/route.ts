@@ -1,4 +1,5 @@
 import { fal } from "@fal-ai/client";
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 
 import {
@@ -119,6 +120,39 @@ function buildFalInput(request: ValidatedTTSRequest) {
   return input;
 }
 
+function filenameExtension(outputFormat: ValidatedTTSRequest["output_format"]) {
+  if (outputFormat === "ogg_opus") {
+    return "ogg";
+  }
+
+  return outputFormat;
+}
+
+function slugPart(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function createStudioFileName(request: ValidatedTTSRequest, requestId?: string) {
+  const voicePart =
+    request.mode === "multi"
+      ? request.speakers
+          ?.map((speaker) => slugPart(speaker.voice))
+          .filter(Boolean)
+          .join("-")
+      : slugPart(request.voice ?? "voice");
+  const uniquePart = slugPart(requestId ?? randomUUID()).slice(0, 10);
+
+  return [
+    "threezinc-studio",
+    voicePart || "voice",
+    uniquePart || "audio",
+  ].join("-") + `.${filenameExtension(request.output_format)}`;
+}
+
 async function subscribeWithRetry(input: Record<string, unknown>) {
   let lastError: unknown;
 
@@ -210,8 +244,15 @@ export async function POST(request: Request) {
     }
 
     const characterCount = countBillableCharacters(validation.value.prompt);
+    const studioFileName = createStudioFileName(
+      validation.value,
+      result.requestId,
+    );
     const response: TTSGenerateResponse = {
-      audio: data.audio,
+      audio: {
+        ...data.audio,
+        file_name: studioFileName,
+      },
       requestId: result.requestId,
       characterCount,
       estimatedCost: estimateFalCostUsd(characterCount),

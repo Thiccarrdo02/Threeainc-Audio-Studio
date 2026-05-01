@@ -1,6 +1,6 @@
 # ThreeZinc Audio Studio
 
-Local-first text-to-speech studio for creating polished voice audio with Fal/Gemini TTS. The app runs as a standalone Next.js project, keeps credentials server-side, stores only browser metadata, and uses local static preview WAVs for instant voice auditions.
+Local-first text-to-speech studio for creating polished voice audio with Fal/Gemini TTS. The app runs as a standalone Next.js project, keeps credentials server-side, stores only browser metadata, and uses local static preview MP3s for instant voice auditions.
 
 ## Features
 
@@ -8,7 +8,8 @@ Local-first text-to-speech studio for creating polished voice audio with Fal/Gem
 - Single-voice generation.
 - Exactly-two-speaker dialogue generation.
 - 30 selectable Fal/Gemini voice models.
-- Voice catalog search, gender filter, tone filter, and local-preview filter.
+- English and Hindi static previews for every voice model.
+- Voice catalog search, gender filter, tone filter, and preview language switcher.
 - Multi-speaker voice assignment from the catalog with Speaker 1 and Speaker 2 assignment buttons.
 - Speaker chips above the script editor for inserting dialogue prefixes while writing.
 - Featured Indian language workflow with Hindi, English India, Marathi, Tamil, Telugu, Gujarati, Kannada, Malayalam, and Punjabi options.
@@ -81,10 +82,11 @@ Add `FAL_KEY` in Vercel Project Settings for Preview and Production. Do not add 
 - The browser never imports `@fal-ai/client`.
 - Generated audio files are not saved locally.
 - Generated audio is stored as provider URL plus metadata only.
+- Generated output filenames use ThreeZinc names like `threezinc-studio-kore-...mp3`.
 - No SQLite or filesystem persistence is used.
 - There is no `/api/tts/preview` route.
 - Voice preview playback uses local files from `public/previews/`.
-- Hindi generation is supported, but instant Hindi preview playback needs owned local Hindi preview files before it can be enabled.
+- English and Hindi preview playback use owned local MP3 files from `public/previews/en/` and `public/previews/hi/`.
 
 ## Important Files
 
@@ -99,6 +101,7 @@ Add `FAL_KEY` in Vercel Project Settings for Preview and Production. Do not add 
 - `lib/client-store.ts` - browser persistence adapter.
 - `lib/cost.ts` - character and credit estimation.
 - `lib/tts-validation.ts` - request validation.
+- `scripts/generate-voice-previews.mjs` - Fal preview asset generation utility.
 - `tests/contracts.test.mjs` - contract and boundary tests.
 - `vercel.json` - Vercel project defaults.
 - `docs/QC_REPORT.md` - latest quality-control report.

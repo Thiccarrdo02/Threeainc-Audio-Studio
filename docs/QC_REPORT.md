@@ -17,8 +17,8 @@ Date: 2026-05-01
 - Search filter narrows the catalog.
 - Gender filter works.
 - Tone filter works.
-- Local-preview filter narrows the catalog to seeded preview voices.
-- Hindi audition mode shows the static-preview boundary message.
+- Preview language switcher plays English or Hindi local MP3 assets.
+- English and Hindi previews exist for all 30 voices.
 - Language selector includes Hindi and Indian language options.
 - Accent, tone, pace, output format, and creativity controls update state.
 - Accent strength slider renders and feeds the generated style instructions.
@@ -40,6 +40,7 @@ Date: 2026-05-01
 - Multi-speaker generation works through `/api/tts/generate`.
 - Generated audio player appears after successful generation.
 - Download link points to the provider audio URL.
+- Download filenames use ThreeZinc Studio naming instead of provider defaults.
 - No `/api/tts/preview` request is made.
 - Browser console is clean during smoke tests.
 - Vercel deployment config and deployment checklist are present.
@@ -50,6 +51,7 @@ Date: 2026-05-01
 - `.env.local` is ignored by git.
 - Client code does not import `@fal-ai/client`.
 - Generated audio is not saved locally.
+- Local History remains browser-local metadata and provider URLs only on Vercel.
 - No SQLite dependency exists.
 - No preview API route exists.
 - Vercel docs do not expose the Fal key and explicitly forbid `NEXT_PUBLIC_FAL_KEY`.
@@ -62,4 +64,4 @@ Date: 2026-05-01
 
 ## Known Product Boundary
 
-Hindi and Indian-language generation are supported. Instant Hindi preview playback remains disabled until owned static Hindi preview WAV files are added to `public/previews/`.
+Generated user audio remains provider-hosted URL metadata only for V1. Durable cross-device history would require an account and storage layer, which is intentionally outside the current local-first scope.

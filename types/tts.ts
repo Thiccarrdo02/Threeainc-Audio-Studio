@@ -17,6 +17,10 @@ export interface Voice {
   tones: string[];
   previewText: string;
   previewUrl: string;
+  previewUrls: {
+    english: string;
+    hindi: string;
+  };
   enabledInMvp: boolean;
 }
 
