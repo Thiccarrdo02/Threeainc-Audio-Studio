@@ -15,6 +15,10 @@ test("required package scripts exist", async () => {
   for (const script of ["dev", "build", "lint", "typecheck", "test"]) {
     assert.equal(typeof pkg.scripts[script], "string", `${script} script missing`);
   }
+
+  const envExample = await read(".env.example");
+  assert.match(envExample, /^FAL_KEY=/m);
+  assert.match(envExample, /^ELEVENLABS_API_KEY=/m);
 });
 
 test("static preview contract is preserved", async () => {
@@ -101,7 +105,16 @@ test("core MVP configuration remains intact", async () => {
 test("secret stays out of client/source files", async () => {
   const sourceFiles = [
     "app/api/tts/generate/route.ts",
+    "app/api/custom-voices/clone/route.ts",
+    "app/api/custom-voices/generate/route.ts",
+    "app/api/custom-voices/voice-changer/route.ts",
+    "app/api/custom-voices/design/route.ts",
+    "app/api/custom-voices/remix/route.ts",
+    "app/api/custom-voices/save-generated/route.ts",
+    "components/studio/custom-voice-lab.tsx",
     "components/studio/tts-studio.tsx",
+    "lib/elevenlabs.ts",
+    "lib/local-custom-voices.ts",
     "hooks/use-tts-generation.ts",
     "scripts/generate-voice-previews.mjs",
     "lib/client-store.ts",
@@ -113,17 +126,24 @@ test("secret stays out of client/source files", async () => {
       continue;
     }
     const contents = await read(file);
-    assert.equal(contents.includes("98f7b25a"), false, `${file} contains key prefix`);
+    const falKeyPrefix = ["98f7", "b25a"].join("");
+    const elevenLabsKeyPrefix = ["sk", "_d7c7"].join("");
+    assert.equal(contents.includes(falKeyPrefix), false, `${file} contains key prefix`);
+    assert.equal(contents.includes(elevenLabsKeyPrefix), false, `${file} contains ElevenLabs key prefix`);
   }
 
   const gitignore = await read(".gitignore");
   assert.match(gitignore, /^\.env\.\*$/m);
   assert.match(gitignore, /^!\.env\.example$/m);
+  assert.match(gitignore, /^\.local\/$/m);
 });
 
 test("storage and provider boundaries are documented in code", async () => {
   const store = await read("lib/client-store.ts");
   const route = await read("app/api/tts/generate/route.ts");
+  const eleven = await read("lib/elevenlabs.ts");
+  const customStore = await read("lib/local-custom-voices.ts");
+  const customLab = await read("components/studio/custom-voice-lab.tsx");
 
   assert.match(store, /localStorage/);
   assert.match(route, /process\.env\.FAL_KEY/);
@@ -131,6 +151,11 @@ test("storage and provider boundaries are documented in code", async () => {
   assert.match(route, /createStudioFileName/);
   assert.match(route, /threezinc-studio/);
   assert.equal(route.includes("NEXT_PUBLIC_FAL_KEY"), false);
+  assert.match(eleven, /process\.env\.ELEVENLABS_API_KEY/);
+  assert.match(customStore, /\.local/);
+  assert.match(customLab, /\/api\/custom-voices\/clone/);
+  assert.match(customLab, /VOICE_CONSENT_REQUIRED|I own this voice or have permission/);
+  assert.equal(customLab.includes("ELEVENLABS_API_KEY"), false);
 });
 
 test("vercel deployment contract is present", async () => {

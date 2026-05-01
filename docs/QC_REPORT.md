@@ -44,6 +44,8 @@ Date: 2026-05-01
 - No `/api/tts/preview` request is made.
 - Browser console is clean during smoke tests.
 - Vercel deployment config and deployment checklist are present.
+- Custom Voice Lab renders for local ElevenLabs clone, custom TTS, voice changer, design, and remix workflows.
+- ElevenLabs custom TTS smoke test returns `audio/mpeg` with a ThreeZinc filename.
 
 ## Security and Storage Checks
 
@@ -55,6 +57,7 @@ Date: 2026-05-01
 - No SQLite dependency exists.
 - No preview API route exists.
 - Vercel docs do not expose the Fal key and explicitly forbid `NEXT_PUBLIC_FAL_KEY`.
+- `ELEVENLABS_API_KEY` is server-side only and `.local/` custom voice metadata is git-ignored.
 
 ## Dependency Audit
 
@@ -65,3 +68,5 @@ Date: 2026-05-01
 ## Known Product Boundary
 
 Generated user audio remains provider-hosted URL metadata only for V1. Durable cross-device history would require an account and storage layer, which is intentionally outside the current local-first scope.
+
+ElevenLabs custom voice output is returned as transient browser audio for local testing and is not written to tracked files or committed local storage.

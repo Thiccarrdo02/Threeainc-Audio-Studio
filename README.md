@@ -10,6 +10,7 @@ Local-first text-to-speech studio for creating polished voice audio with Fal/Gem
 - 30 selectable Fal/Gemini voice models.
 - English and Hindi static previews for every voice model.
 - Voice catalog search, gender filter, tone filter, and preview language switcher.
+- Local ElevenLabs Custom Voice Lab for instant cloning, custom voice TTS, voice changer, voice design, and voice remix.
 - Multi-speaker voice assignment from the catalog with Speaker 1 and Speaker 2 assignment buttons.
 - Speaker chips above the script editor for inserting dialogue prefixes while writing.
 - Featured Indian language workflow with Hindi, English India, Marathi, Tamil, Telugu, Gujarati, Kannada, Malayalam, and Punjabi options.
@@ -46,6 +47,7 @@ Set the key in `.env.local`:
 
 ```env
 FAL_KEY=your_fal_key_here
+ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
 ```
 
 Run the app:
@@ -79,9 +81,12 @@ Add `FAL_KEY` in Vercel Project Settings for Preview and Production. Do not add 
 ## Project Boundaries
 
 - `FAL_KEY` is read only in `app/api/tts/generate/route.ts`.
+- `ELEVENLABS_API_KEY` is read only by server-side custom voice routes and helpers.
 - The browser never imports `@fal-ai/client`.
+- The browser never receives provider API keys.
 - Generated audio files are not saved locally.
 - Generated audio is stored as provider URL plus metadata only.
+- ElevenLabs custom voice metadata is stored locally in ignored `.local/custom-voices.json`.
 - Generated output filenames use ThreeZinc names like `threezinc-studio-kore-...mp3`.
 - No SQLite or filesystem persistence is used.
 - There is no `/api/tts/preview` route.
@@ -101,10 +106,14 @@ Add `FAL_KEY` in Vercel Project Settings for Preview and Production. Do not add 
 - `lib/client-store.ts` - browser persistence adapter.
 - `lib/cost.ts` - character and credit estimation.
 - `lib/tts-validation.ts` - request validation.
+- `lib/elevenlabs.ts` - server-only ElevenLabs API adapter.
+- `lib/local-custom-voices.ts` - ignored local JSON custom voice store.
 - `scripts/generate-voice-previews.mjs` - Fal preview asset generation utility.
 - `tests/contracts.test.mjs` - contract and boundary tests.
 - `vercel.json` - Vercel project defaults.
 - `docs/QC_REPORT.md` - latest quality-control report.
+- `docs/ELEVENLABS_LOCAL_VOICE_CLONING.md` - local custom voice architecture.
+- `docs/ELEVENLABS_LOCAL_TASKS.md` - local custom voice task list.
 - `docs/VERCEL_DEPLOYMENT.md` - Vercel deployment checklist.
 - `docs/preview-assets.md` - preview asset notes.
 

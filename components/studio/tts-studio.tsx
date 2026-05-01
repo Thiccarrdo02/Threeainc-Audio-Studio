@@ -21,6 +21,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { EXPRESSIVE_TAGS } from "@/config/expressive-tags";
+import { CustomVoiceLab } from "@/components/studio/custom-voice-lab";
 import { LONG_SCRIPT_WARNING_CHARACTERS } from "@/config/limits";
 import { MVP_LANGUAGES, toProviderLanguageCode } from "@/config/languages";
 import {
@@ -1506,6 +1507,9 @@ export function TTSStudio() {
                 }))
               }
             />
+          </section>
+          <section className="rounded-lg border border-border bg-background/88 p-4 shadow-sm">
+            <CustomVoiceLab studioPrompt={state.prompt} />
           </section>
           <section className="rounded-lg border border-border bg-background/88 p-4 shadow-sm">
             <GenerationPanel
