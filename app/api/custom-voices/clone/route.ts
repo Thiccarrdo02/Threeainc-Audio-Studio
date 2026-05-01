@@ -27,6 +27,14 @@ export async function POST(request: Request) {
     const name = String(formData.get("name") ?? "").trim();
     const description = String(formData.get("description") ?? "").trim();
     const consent = String(formData.get("consent") ?? "") === "true";
+    const removeBackgroundNoise =
+      String(formData.get("removeBackgroundNoise") ?? "") === "true";
+    const labelsRaw = String(formData.get("labels") ?? "{}");
+    const labels = Object.fromEntries(
+      Object.entries(JSON.parse(labelsRaw) as Record<string, unknown>)
+        .map(([key, value]) => [key, String(value ?? "").trim()])
+        .filter(([, value]) => value.length > 0),
+    );
     const files = formData
       .getAll("files")
       .filter((item): item is File => item instanceof File && item.size > 0);
@@ -55,13 +63,26 @@ export async function POST(request: Request) {
       );
     }
 
-    const created = await addInstantCloneVoice({ name, description, files });
+    const created = await addInstantCloneVoice({
+      name,
+      description,
+      files,
+      removeBackgroundNoise,
+      labels,
+    });
+    const profile = voiceToStoredProfile(
+      { voice_id: created.voice_id, name, description },
+      "instant-clone",
+      { name, description },
+    );
     const stored = await upsertCustomVoice(
-      voiceToStoredProfile(
-        { voice_id: created.voice_id, name, description },
-        "instant-clone",
-        { name, description },
-      ),
+      {
+        ...profile,
+        labels: {
+          ...profile.labels,
+          ...labels,
+        },
+      },
     );
 
     return NextResponse.json({ voice: stored });

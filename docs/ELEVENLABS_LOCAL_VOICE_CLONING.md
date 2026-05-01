@@ -10,8 +10,8 @@ This version is local-first:
 
 - `ELEVENLABS_API_KEY` stays server-side in `.env.local`.
 - Custom voice metadata is stored in `.local/custom-voices.json`.
-- Generated custom-voice audio is returned to the browser as a transient Blob URL for play/download.
-- Generated custom-voice audio files are not written to disk.
+- Voice-changer output is returned to the browser as a transient Blob URL for play/download.
+- Voice-changer output audio files are not written to disk.
 - Cloned voice IDs live in the connected ElevenLabs account and are referenced locally by metadata.
 
 ## ElevenLabs Features Used
@@ -19,8 +19,6 @@ This version is local-first:
 Sources:
 
 - Add Voice API: `POST /v1/voices/add`
-- Text to Speech API: `POST /v1/text-to-speech/:voice_id`
-- Voice Settings API: `POST /v1/voices/:voice_id/settings/edit`
 - Voice Changer API: `POST /v1/speech-to-speech/:voice_id`
 - Voice Design API: `POST /v1/text-to-voice/create-previews`, then `POST /v1/text-to-voice`
 - Voice Remix API: `POST /v1/text-to-voice/:voice_id/remix`, then `POST /v1/text-to-voice`
@@ -59,7 +57,6 @@ Stored in `.local/custom-voices.json`:
 
 - `GET /api/custom-voices` lists local custom voices.
 - `POST /api/custom-voices/clone` uploads one or more audio samples and creates an instant clone.
-- `POST /api/custom-voices/generate` converts text to speech with a selected custom voice.
 - `POST /api/custom-voices/voice-changer` converts uploaded performance audio into the selected custom voice.
 - `POST /api/custom-voices/design` creates voice-design previews from a text description.
 - `POST /api/custom-voices/remix` creates voice-remix previews from an owned voice.
@@ -68,27 +65,24 @@ Stored in `.local/custom-voices.json`:
 
 ## UX
 
-Add a Custom Voice Lab under the Voice Catalog:
+Add a separate Voice Cloning Lab tab beside the main TTS Studio tab:
 
-- Instant Clone: name, description, audio upload, consent checkbox, create button.
-- My Custom Voices: local list with selected voice, source badge, delete.
-- Custom Voice TTS: text area, model selector, language selector, output format, seed, stability, similarity, style, speed, speaker boost, generate.
-- Voice Changer: upload source performance audio, remove-noise toggle, convert to selected custom voice.
-- Voice Design: describe a new voice, generate previews, save chosen preview.
-- Voice Remix: remix selected custom voice with a prompt-strength slider, preview, save variant.
+- Voice Library: local list with selected voice, source badge, refresh, delete.
+- Instant Clone: name, description, metadata labels, styled audio uploader, sample cleanup toggle, consent checkbox, create button feedback.
+- Voice Changer: target voice summary, styled source-performance uploader, output format, seed, cleanup toggle, stability, similarity, style, speed, speaker boost, conversion output player.
+- Voice Design: prompt chips, loudness, quality, guidance, seed, previews, save chosen preview.
+- Voice Remix: remix selected custom voice with prompt-strength slider, previews, save variant.
 
 ## Guardrails
 
 - Do not expose `ELEVENLABS_API_KEY` to the browser.
 - Do not commit `.env.local` or `.local/custom-voices.json`.
-- Do not write generated TTS/voice-changer output audio to local files.
+- Do not write voice-changer output audio to local files.
 - Require a consent checkbox before any clone upload.
 - Delete custom voices through the provider delete endpoint when the user deletes a local voice.
 
 ## Quality Defaults
 
-- TTS model default: `eleven_multilingual_v2` for quality.
-- Fast model option: `eleven_flash_v2_5`.
 - Output default: `mp3_44100_128`.
 - Stability default: `0.5`.
 - Similarity boost default: `0.8`.

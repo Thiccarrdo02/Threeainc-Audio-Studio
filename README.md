@@ -10,7 +10,7 @@ Local-first text-to-speech studio for creating polished voice audio with Fal/Gem
 - 30 selectable Fal/Gemini voice models.
 - English and Hindi static previews for every voice model.
 - Voice catalog search, gender filter, tone filter, and preview language switcher.
-- Local ElevenLabs Custom Voice Lab for instant cloning, custom voice TTS, voice changer, voice design, and voice remix.
+- Separate ElevenLabs Voice Cloning Lab for instant cloning, voice changer, voice design, and voice remix.
 - Multi-speaker voice assignment from the catalog with Speaker 1 and Speaker 2 assignment buttons.
 - Speaker chips above the script editor for inserting dialogue prefixes while writing.
 - Featured Indian language workflow with Hindi, English India, Marathi, Tamil, Telugu, Gujarati, Kannada, Malayalam, and Punjabi options.
@@ -87,6 +87,7 @@ Add `FAL_KEY` in Vercel Project Settings for Preview and Production. Do not add 
 - Generated audio files are not saved locally.
 - Generated audio is stored as provider URL plus metadata only.
 - ElevenLabs custom voice metadata is stored locally in ignored `.local/custom-voices.json`.
+- ElevenLabs is not used for the main TTS workspace; Fal/Gemini remains the text-to-speech provider.
 - Generated output filenames use ThreeZinc names like `threezinc-studio-kore-...mp3`.
 - No SQLite or filesystem persistence is used.
 - There is no `/api/tts/preview` route.

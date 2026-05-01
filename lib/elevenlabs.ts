@@ -10,12 +10,6 @@ import {
 
 const ELEVENLABS_API_BASE = "https://api.elevenlabs.io";
 
-export const ELEVENLABS_TTS_MODELS = [
-  { id: "eleven_multilingual_v2", label: "Multilingual v2 - Best quality" },
-  { id: "eleven_flash_v2_5", label: "Flash v2.5 - Fast" },
-  { id: "eleven_turbo_v2_5", label: "Turbo v2.5 - Balanced" },
-] as const;
-
 export const ELEVENLABS_OUTPUT_FORMATS = [
   { id: "mp3_44100_128", label: "MP3 44.1k 128kbps" },
   { id: "mp3_22050_32", label: "MP3 22.05k 32kbps" },
@@ -91,19 +85,25 @@ export async function addInstantCloneVoice({
   name,
   description,
   files,
+  removeBackgroundNoise,
+  labels,
 }: {
   name: string;
   description: string;
   files: File[];
+  removeBackgroundNoise: boolean;
+  labels?: Record<string, string>;
 }) {
   const formData = new FormData();
   formData.set("name", name);
   formData.set("description", description);
+  formData.set("remove_background_noise", String(removeBackgroundNoise));
   formData.set(
     "labels",
     JSON.stringify({
       app: "threezinc-audio-studio",
       source: "instant-clone",
+      ...(labels ?? {}),
     }),
   );
 
@@ -117,53 +117,6 @@ export async function addInstantCloneVoice({
   });
 
   return parseJsonResponse<{ voice_id: string }>(response);
-}
-
-export async function createSpeech({
-  voiceId,
-  text,
-  modelId,
-  languageCode,
-  outputFormat,
-  seed,
-  settings,
-}: {
-  voiceId: string;
-  text: string;
-  modelId: string;
-  languageCode?: string;
-  outputFormat: string;
-  seed?: number;
-  settings?: Partial<ElevenLabsVoiceSettings>;
-}) {
-  const params = new URLSearchParams({ output_format: outputFormat });
-  const response = await elevenLabsFetch(
-    `/v1/text-to-speech/${encodeURIComponent(voiceId)}?${params.toString()}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "audio/mpeg",
-      },
-      body: JSON.stringify({
-        text,
-        model_id: modelId,
-        ...(languageCode ? { language_code: languageCode } : {}),
-        ...(typeof seed === "number" ? { seed } : {}),
-        voice_settings: toElevenLabsSettings(settings),
-      }),
-    },
-  );
-
-  if (!response.ok) {
-    await parseJsonResponse(response);
-  }
-
-  return {
-    bytes: Buffer.from(await response.arrayBuffer()),
-    contentType: response.headers.get("content-type") ?? "audio/mpeg",
-    requestId: response.headers.get("request-id") ?? undefined,
-  };
 }
 
 export async function convertSpeechToSpeech({
@@ -231,13 +184,33 @@ function mapPreviewCandidate(
   };
 }
 
-export async function designVoicePreviews(description: string) {
+export async function designVoicePreviews({
+  description,
+  loudness,
+  quality,
+  guidanceScale,
+  seed,
+}: {
+  description: string;
+  loudness?: number;
+  quality?: number;
+  guidanceScale?: number;
+  seed?: number;
+}) {
   const response = await elevenLabsFetch(
     "/v1/text-to-voice/create-previews?output_format=mp3_44100_128",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ voice_description: description }),
+      body: JSON.stringify({
+        voice_description: description,
+        ...(typeof loudness === "number" ? { loudness } : {}),
+        ...(typeof quality === "number" ? { quality } : {}),
+        ...(typeof guidanceScale === "number"
+          ? { guidance_scale: guidanceScale }
+          : {}),
+        ...(typeof seed === "number" ? { seed } : {}),
+      }),
     },
   );
 

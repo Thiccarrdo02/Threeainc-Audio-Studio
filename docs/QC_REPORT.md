@@ -44,8 +44,9 @@ Date: 2026-05-01
 - No `/api/tts/preview` request is made.
 - Browser console is clean during smoke tests.
 - Vercel deployment config and deployment checklist are present.
-- Custom Voice Lab renders for local ElevenLabs clone, custom TTS, voice changer, design, and remix workflows.
-- ElevenLabs custom TTS smoke test returns `audio/mpeg` with a ThreeZinc filename.
+- Voice Cloning Lab is separated from the main Fal/Gemini TTS workspace.
+- Voice Cloning Lab renders local ElevenLabs clone, voice changer, design, and remix workflows.
+- Voice changer output remains transient browser audio and is not written to local project files.
 
 ## Security and Storage Checks
 

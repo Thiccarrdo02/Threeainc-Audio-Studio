@@ -106,7 +106,6 @@ test("secret stays out of client/source files", async () => {
   const sourceFiles = [
     "app/api/tts/generate/route.ts",
     "app/api/custom-voices/clone/route.ts",
-    "app/api/custom-voices/generate/route.ts",
     "app/api/custom-voices/voice-changer/route.ts",
     "app/api/custom-voices/design/route.ts",
     "app/api/custom-voices/remix/route.ts",
@@ -154,8 +153,17 @@ test("storage and provider boundaries are documented in code", async () => {
   assert.match(eleven, /process\.env\.ELEVENLABS_API_KEY/);
   assert.match(customStore, /\.local/);
   assert.match(customLab, /\/api\/custom-voices\/clone/);
+  assert.equal(customLab.includes("/api/custom-voices/generate"), false);
+  assert.equal(customLab.includes("Custom Voice TTS"), false);
   assert.match(customLab, /VOICE_CONSENT_REQUIRED|I own this voice or have permission/);
+  assert.match(customLab, /Voice Changer/);
+  assert.match(customLab, /Voice Design/);
+  assert.match(customLab, /Voice Remix/);
+  assert.match(customLab, /Upload voice samples/);
+  assert.match(customLab, /Generate previews/);
+  assert.match(customLab, /Generate remix previews/);
   assert.equal(customLab.includes("ELEVENLABS_API_KEY"), false);
+  assert.match(await read("components/studio/tts-studio.tsx"), /Voice Cloning/);
 });
 
 test("vercel deployment contract is present", async () => {

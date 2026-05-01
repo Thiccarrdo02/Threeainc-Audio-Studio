@@ -275,18 +275,24 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+type StudioWorkspace = "tts" | "voice-cloning";
+
 function TopBar({
   mode,
+  workspace,
   characterCount,
+  onWorkspaceChange,
   onModeChange,
 }: {
   mode: StudioState["mode"];
+  workspace: StudioWorkspace;
   characterCount: number;
+  onWorkspaceChange: (workspace: StudioWorkspace) => void;
   onModeChange: (mode: StudioState["mode"]) => void;
 }) {
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur">
-      <div className="mx-auto flex min-h-14 max-w-7xl flex-wrap items-center justify-between gap-2 px-4 py-2 sm:flex-nowrap sm:gap-3 sm:px-6">
+      <div className="mx-auto flex min-h-14 max-w-7xl flex-wrap items-center justify-between gap-2 px-4 py-2 sm:gap-3 sm:px-6">
         <div className="flex items-center gap-3">
           <div className="flex size-8 items-center justify-center rounded-lg bg-theme-gradient-button text-white shadow-[0_4px_16px_rgba(31,76,238,0.25)]">
             <Mic2 size={17} aria-hidden="true" />
@@ -299,35 +305,66 @@ function TopBar({
           </div>
         </div>
 
-        <div className="flex contents items-center gap-2 sm:flex">
-          <div className="order-3 flex w-full rounded-md border border-border bg-card p-0.5 sm:order-none sm:w-auto">
-            <button
-              className={`flex-1 rounded px-3 py-1 text-xs font-medium sm:flex-none ${
-                mode === "single"
-                  ? "bg-theme-primary text-white"
-                  : "text-muted-foreground"
-              }`}
-              type="button"
-              onClick={() => onModeChange("single")}
-            >
-              Single Voice
-            </button>
-            <button
-              className={`flex-1 rounded px-3 py-1 text-xs font-medium sm:flex-none ${
-                mode === "multi"
-                  ? "bg-theme-primary text-white"
-                  : "text-muted-foreground"
-              }`}
-              type="button"
-              onClick={() => onModeChange("multi")}
-            >
-              Multi-Speaker
-            </button>
-          </div>
-          <div className="rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
-            {characterCount.toLocaleString()} chars
-          </div>
+        <div className="order-3 flex w-full rounded-md border border-border bg-card p-0.5 sm:order-none sm:w-auto">
+          <button
+            className={`flex-1 rounded px-3 py-1.5 text-xs font-medium sm:flex-none ${
+              workspace === "tts"
+                ? "bg-theme-primary text-white"
+                : "text-muted-foreground"
+            }`}
+            type="button"
+            onClick={() => onWorkspaceChange("tts")}
+          >
+            TTS Studio
+          </button>
+          <button
+            className={`flex-1 rounded px-3 py-1.5 text-xs font-medium sm:flex-none ${
+              workspace === "voice-cloning"
+                ? "bg-theme-primary text-white"
+                : "text-muted-foreground"
+            }`}
+            type="button"
+            onClick={() => onWorkspaceChange("voice-cloning")}
+          >
+            Voice Cloning
+          </button>
         </div>
+
+        {workspace === "tts" ? (
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-md border border-border bg-card p-0.5">
+              <button
+                className={`rounded px-3 py-1 text-xs font-medium ${
+                  mode === "single"
+                    ? "bg-theme-primary text-white"
+                    : "text-muted-foreground"
+                }`}
+                type="button"
+                onClick={() => onModeChange("single")}
+              >
+                Single Voice
+              </button>
+              <button
+                className={`rounded px-3 py-1 text-xs font-medium ${
+                  mode === "multi"
+                    ? "bg-theme-primary text-white"
+                    : "text-muted-foreground"
+                }`}
+                type="button"
+                onClick={() => onModeChange("multi")}
+              >
+                Multi-Speaker
+              </button>
+            </div>
+            <div className="rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
+              {characterCount.toLocaleString()} chars
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
+            ElevenLabs local lab
+          </div>
+        )}
       </div>
     </header>
   );
@@ -1286,6 +1323,7 @@ function AudioPlayer({
 
 export function TTSStudio() {
   const [hydrated, setHydrated] = useState(false);
+  const [workspace, setWorkspace] = useState<StudioWorkspace>("tts");
   const [state, setState] = useState<StudioState>(defaultStudioState);
   const [scripts, setScripts] = useState<LocalScript[]>([]);
   const [generations, setGenerations] = useState<LocalGeneration[]>([]);
@@ -1478,62 +1516,69 @@ export function TTSStudio() {
     <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(50,183,238,0.10),transparent_28%),linear-gradient(180deg,rgba(51,83,254,0.04),transparent_280px)] pb-28 text-foreground">
       <TopBar
         mode={state.mode}
+        workspace={workspace}
         characterCount={state.prompt.length}
+        onWorkspaceChange={setWorkspace}
         onModeChange={changeMode}
       />
-      <div className="mx-auto grid max-w-7xl gap-5 px-4 py-5 lg:grid-cols-[minmax(0,1fr)_390px] sm:px-6">
-        <section className="rounded-lg border border-border bg-background/88 p-4 shadow-sm sm:p-5">
-          <StudioControls
-            state={state}
-            speakerIssues={speakerIssues}
-            onChange={setState}
-          />
-        </section>
-
-        <div className="space-y-5">
-          <section className="rounded-lg border border-border bg-background/88 p-4 shadow-sm">
-            <VoiceCatalog
-              mode={state.mode}
-              selectedVoiceId={state.voiceId}
-              speakers={state.speakers}
-              preview={preview}
-              onSelect={(voiceId) => setState({ ...state, voiceId })}
-              onAssignSpeaker={(speakerIndex, voiceId) =>
-                setState((current) => ({
-                  ...current,
-                  speakers: current.speakers.map((speaker, index) =>
-                    index === speakerIndex ? { ...speaker, voice: voiceId } : speaker,
-                  ),
-                }))
-              }
-            />
-          </section>
-          <section className="rounded-lg border border-border bg-background/88 p-4 shadow-sm">
-            <CustomVoiceLab studioPrompt={state.prompt} />
-          </section>
-          <section className="rounded-lg border border-border bg-background/88 p-4 shadow-sm">
-            <GenerationPanel
+      {workspace === "tts" ? (
+        <div className="mx-auto grid max-w-7xl gap-5 px-4 py-5 lg:grid-cols-[minmax(0,1fr)_390px] sm:px-6">
+          <section className="rounded-lg border border-border bg-background/88 p-4 shadow-sm sm:p-5">
+            <StudioControls
               state={state}
-              selectedVoice={selectedVoice}
               speakerIssues={speakerIssues}
-              generationError={generation.error}
-              isGenerating={generation.isGenerating}
-              onGenerate={runGenerate}
-              onSaveScript={saveScript}
+              onChange={setState}
             />
           </section>
-          <section className="rounded-lg border border-border bg-background/88 p-4 shadow-sm">
-            <LocalHistoryPanel
-              generations={generations}
-              scripts={scripts}
-              onLoadScript={loadScript}
-              onLoadGeneration={loadGeneration}
-            />
-          </section>
-        </div>
-      </div>
 
-      {activeGeneration ? (
+          <div className="space-y-5">
+            <section className="rounded-lg border border-border bg-background/88 p-4 shadow-sm">
+              <VoiceCatalog
+                mode={state.mode}
+                selectedVoiceId={state.voiceId}
+                speakers={state.speakers}
+                preview={preview}
+                onSelect={(voiceId) => setState({ ...state, voiceId })}
+                onAssignSpeaker={(speakerIndex, voiceId) =>
+                  setState((current) => ({
+                    ...current,
+                    speakers: current.speakers.map((speaker, index) =>
+                      index === speakerIndex
+                        ? { ...speaker, voice: voiceId }
+                        : speaker,
+                    ),
+                  }))
+                }
+              />
+            </section>
+            <section className="rounded-lg border border-border bg-background/88 p-4 shadow-sm">
+              <GenerationPanel
+                state={state}
+                selectedVoice={selectedVoice}
+                speakerIssues={speakerIssues}
+                generationError={generation.error}
+                isGenerating={generation.isGenerating}
+                onGenerate={runGenerate}
+                onSaveScript={saveScript}
+              />
+            </section>
+            <section className="rounded-lg border border-border bg-background/88 p-4 shadow-sm">
+              <LocalHistoryPanel
+                generations={generations}
+                scripts={scripts}
+                onLoadScript={loadScript}
+                onLoadGeneration={loadGeneration}
+              />
+            </section>
+          </div>
+        </div>
+      ) : (
+        <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6">
+          <CustomVoiceLab />
+        </div>
+      )}
+
+      {workspace === "tts" && activeGeneration ? (
         <AudioPlayer
           generation={activeGeneration}
           audio={audio}
