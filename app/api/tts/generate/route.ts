@@ -15,6 +15,7 @@ import {
 import type { TTSApiError, TTSGenerateResponse } from "@/types/tts";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const MODEL_ID = "fal-ai/gemini-3.1-flash-tts";
 

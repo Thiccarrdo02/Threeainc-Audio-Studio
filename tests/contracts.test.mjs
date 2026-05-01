@@ -37,6 +37,7 @@ test("core MVP configuration remains intact", async () => {
   const stylePresets = await read("config/style-presets.ts");
   const tags = await read("config/expressive-tags.ts");
   const pricing = await read("config/pricing.ts");
+  const studio = await read("components/studio/tts-studio.tsx");
 
   const falVoices = [
     "Achernar", "Achird", "Algenib", "Algieba", "Alnilam", "Aoede",
@@ -83,6 +84,9 @@ test("core MVP configuration remains intact", async () => {
   assert.match(pricing, /THREEZINC_MARKUP_MULTIPLIER\s*=\s*1\.25/);
   assert.match(pricing, /THREEZINC_CREDITS_PER_USD\s*=\s*20/);
   assert.match(pricing, /MINIMUM_THREEZINC_CREDITS\s*=\s*0\.5/);
+  assert.match(studio, /accentStrength:\s*45/);
+  assert.ok(studio.includes("Accent Strength"), "accent strength control missing");
+  assert.ok(studio.includes("addFallbackExpression"), "auto-expression fallback missing");
 });
 
 test("secret stays out of client/source files", async () => {
@@ -113,5 +117,17 @@ test("storage and provider boundaries are documented in code", async () => {
 
   assert.match(store, /localStorage/);
   assert.match(route, /process\.env\.FAL_KEY/);
+  assert.match(route, /export const maxDuration = 60/);
   assert.equal(route.includes("NEXT_PUBLIC_FAL_KEY"), false);
+});
+
+test("vercel deployment contract is present", async () => {
+  const vercel = JSON.parse(await read("vercel.json"));
+  const deploymentDoc = await read("docs/VERCEL_DEPLOYMENT.md");
+
+  assert.equal(vercel.framework, "nextjs");
+  assert.equal(vercel.installCommand, "npm ci");
+  assert.equal(vercel.buildCommand, "npm run build");
+  assert.ok(deploymentDoc.includes("FAL_KEY"));
+  assert.ok(deploymentDoc.includes("NEXT_PUBLIC_FAL_KEY"));
 });

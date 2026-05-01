@@ -74,6 +74,7 @@ export interface LocalScript {
   outputFormat?: TTSOutputFormat;
   temperature?: number;
   accentPreset?: string;
+  accentStrength?: number;
   tonePreset?: string;
   pacePreset?: string;
   createdAt: string;
@@ -111,6 +112,7 @@ export interface StudioState {
   outputFormat: TTSOutputFormat;
   temperature: number;
   accentPreset: string;
+  accentStrength: number;
   tonePreset: string;
   pacePreset: string;
 }

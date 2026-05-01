@@ -52,6 +52,10 @@ export const clientStore = {
       outputFormat: stored?.outputFormat ?? fallback.outputFormat,
       temperature: stored?.temperature ?? fallback.temperature,
       accentPreset: stored?.accentPreset ?? fallback.accentPreset,
+      accentStrength:
+        typeof stored?.accentStrength === "number"
+          ? stored.accentStrength
+          : fallback.accentStrength,
       tonePreset: stored?.tonePreset ?? fallback.tonePreset,
       pacePreset: stored?.pacePreset ?? fallback.pacePreset,
     };

@@ -1,6 +1,6 @@
 # Quality Control Report
 
-Date: 2026-04-28
+Date: 2026-05-01
 
 ## Command Gates
 
@@ -21,9 +21,11 @@ Date: 2026-04-28
 - Hindi audition mode shows the static-preview boundary message.
 - Language selector includes Hindi and Indian language options.
 - Accent, tone, pace, output format, and creativity controls update state.
+- Accent strength slider renders and feeds the generated style instructions.
 - ThreeZinc credits are shown instead of USD.
 - Credit estimates use the 0.5 credit minimum and 0.5 credit increments.
 - Automatic expression markup inserts contextual local tags.
+- Automatic expression markup now adds a sensible fallback cue for plain pasted scripts.
 - Expanded expression tags are available.
 - Switching from single to multi keeps the pasted text only under Speaker 1 and creates a blank Speaker 2 line.
 - Speaker 1 and Speaker 2 voices are assigned from the Voice Catalog.
@@ -40,6 +42,7 @@ Date: 2026-04-28
 - Download link points to the provider audio URL.
 - No `/api/tts/preview` request is made.
 - Browser console is clean during smoke tests.
+- Vercel deployment config and deployment checklist are present.
 
 ## Security and Storage Checks
 
@@ -49,6 +52,7 @@ Date: 2026-04-28
 - Generated audio is not saved locally.
 - No SQLite dependency exists.
 - No preview API route exists.
+- Vercel docs do not expose the Fal key and explicitly forbid `NEXT_PUBLIC_FAL_KEY`.
 
 ## Dependency Audit
 

@@ -13,6 +13,7 @@ Local-first text-to-speech studio for creating polished voice audio with Fal/Gem
 - Speaker chips above the script editor for inserting dialogue prefixes while writing.
 - Featured Indian language workflow with Hindi, English India, Marathi, Tamil, Telugu, Gujarati, Kannada, Malayalam, and Punjabi options.
 - Accent presets: Neutral, Indian English, Native Hindi, North Indian, South Indian, American, British, and Australian.
+- Accent-strength slider for soft, balanced, or strong accent influence.
 - Tone presets: Natural, Studio Ad, Explainer, Podcast, News, Social Reel, Meditation, and Dramatic.
 - Pace presets: Slow, Steady, and Fast.
 - Creativity slider mapped to Fal/Gemini `temperature`.
@@ -63,6 +64,17 @@ npm.cmd run test
 npm.cmd run build
 ```
 
+## Vercel Deployment
+
+The repository includes `vercel.json` for standalone Vercel testing:
+
+- Framework preset: Next.js.
+- Install command: `npm ci`.
+- Build command: `npm run build`.
+- Server-side generation route: Node.js runtime with a 60 second max duration.
+
+Add `FAL_KEY` in Vercel Project Settings for Preview and Production. Do not add a `NEXT_PUBLIC_` Fal key. Full deployment notes are in `docs/VERCEL_DEPLOYMENT.md`.
+
 ## Project Boundaries
 
 - `FAL_KEY` is read only in `app/api/tts/generate/route.ts`.
@@ -88,7 +100,9 @@ npm.cmd run build
 - `lib/cost.ts` - character and credit estimation.
 - `lib/tts-validation.ts` - request validation.
 - `tests/contracts.test.mjs` - contract and boundary tests.
+- `vercel.json` - Vercel project defaults.
 - `docs/QC_REPORT.md` - latest quality-control report.
+- `docs/VERCEL_DEPLOYMENT.md` - Vercel deployment checklist.
 - `docs/preview-assets.md` - preview asset notes.
 
 ## Environment Safety

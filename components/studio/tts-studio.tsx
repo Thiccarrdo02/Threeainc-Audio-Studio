@@ -56,6 +56,7 @@ const defaultStudioState: StudioState = {
   outputFormat: "mp3",
   temperature: 1,
   accentPreset: "neutral",
+  accentStrength: 45,
   tonePreset: "natural",
   pacePreset: "steady",
   speakers: [
@@ -79,9 +80,57 @@ const PREVIEW_LANGUAGE_OPTIONS = [
   { value: "hindi", label: "Hindi audition" },
 ] as const;
 
+function clampAccentStrength(value: number) {
+  if (!Number.isFinite(value)) {
+    return defaultStudioState.accentStrength;
+  }
+
+  return Math.min(100, Math.max(0, value));
+}
+
+function accentStrengthLabel(value: number) {
+  const strength = clampAccentStrength(value);
+  if (strength <= 5) {
+    return "Neutral";
+  }
+  if (strength <= 30) {
+    return "Light";
+  }
+  if (strength <= 60) {
+    return "Balanced";
+  }
+  if (strength <= 85) {
+    return "Strong";
+  }
+  return "Very strong";
+}
+
+function getAccentStrengthInstruction(state: StudioState) {
+  const strength = clampAccentStrength(state.accentStrength);
+
+  if (state.accentPreset === "neutral" || strength <= 5) {
+    return "Keep regional accent influence very light and prioritize neutral, broadly understandable pronunciation.";
+  }
+
+  if (strength <= 30) {
+    return "Apply the selected accent subtly; avoid heavy regional pronunciation.";
+  }
+
+  if (strength <= 60) {
+    return "Apply the selected accent at a natural medium strength while keeping every word clear.";
+  }
+
+  if (strength <= 85) {
+    return "Use a clear, noticeable selected accent while preserving intelligibility.";
+  }
+
+  return "Use a strong selected accent, but keep speech clean, polished, and easy to understand.";
+}
+
 function composeStyleInstructions(state: StudioState) {
   const presetInstructions = [
     getPresetInstruction(ACCENT_PRESETS, state.accentPreset),
+    getAccentStrengthInstruction(state),
     getPresetInstruction(TONE_PRESETS, state.tonePreset),
     getPresetInstruction(PACE_PRESETS, state.pacePreset),
   ];
@@ -151,6 +200,9 @@ function autoMarkupLine(line: string) {
   const isWhisper = /(secret|quietly|keep this between us|listen closely)/i.test(trimmed);
   const isSarcastic = /(yeah right|as if|obviously|sure, because)/i.test(lower);
   const isHesitation = /^(?:[A-Za-z0-9]+:\s*)?(well|um|uh|hmm|actually)\b/i.test(trimmed);
+  const isCheerful = /(great news|welcome|congrats|congratulations|happy|delighted)/i.test(trimmed);
+  const isDramatic = /(final chance|never forget|betray|betrayed|destiny|at last)/i.test(trimmed);
+  const isFast = /(quickly|hurry|as fast as|right away|immediately)/i.test(trimmed);
 
   if (isSarcastic) {
     next = addTagAfterSpeakerPrefix(next, "[sarcasm]");
@@ -164,16 +216,54 @@ function autoMarkupLine(line: string) {
     next = addTagAfterSpeakerPrefix(next, "[sigh]");
   } else if (isHesitation) {
     next = addTagAfterSpeakerPrefix(next, "[uhm]");
+  } else if (isCheerful) {
+    next = addTagAfterSpeakerPrefix(next, "[cheerfully]");
+  } else if (isDramatic) {
+    next = addTagAfterSpeakerPrefix(next, "[dramatic]");
+  } else if (isFast) {
+    next = addTagAfterSpeakerPrefix(next, "[fast]");
   }
 
   return next.replace(/\s{2,}/g, " ").trimEnd();
 }
 
+function addFallbackExpression(prompt: string) {
+  const withSentencePauses = prompt.replace(
+    /([.!?])\s+(?=(?:[A-Za-z0-9]+:\s*)?["'A-Za-z0-9])/g,
+    "$1 [short pause] ",
+  );
+
+  if (withSentencePauses !== prompt) {
+    return withSentencePauses;
+  }
+
+  const lines = prompt.split("\n");
+  const firstMarkableLine = lines.findIndex(
+    (line) => line.trim() && !hasLeadingAudioTag(line),
+  );
+
+  if (firstMarkableLine === -1) {
+    return prompt;
+  }
+
+  lines[firstMarkableLine] = addTagAfterSpeakerPrefix(
+    lines[firstMarkableLine],
+    "[cheerfully]",
+  );
+  return lines.join("\n");
+}
+
 function autoMarkupPrompt(prompt: string) {
-  return prompt
+  const markedPrompt = prompt
     .split("\n")
     .map((line) => autoMarkupLine(line))
     .join("\n");
+
+  if (markedPrompt !== prompt) {
+    return markedPrompt;
+  }
+
+  return addFallbackExpression(prompt);
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
@@ -280,6 +370,7 @@ function ScriptEditor({
   onPromptChange: (value: string) => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [autoExpressionStatus, setAutoExpressionStatus] = useState("");
 
   const insertText = useCallback((text: string, forceLineStart = false) => {
     const textarea = textareaRef.current;
@@ -312,8 +403,19 @@ function ScriptEditor({
   }, [insertText]);
 
   const autoAddExpressions = useCallback(() => {
-    onPromptChange(autoMarkupPrompt(prompt));
+    const nextPrompt = autoMarkupPrompt(prompt);
+    onPromptChange(nextPrompt);
+    setAutoExpressionStatus(
+      nextPrompt === prompt
+        ? "Script already has expression cues."
+        : "Expression cues added.",
+    );
   }, [onPromptChange, prompt]);
+
+  const handlePromptChange = useCallback((value: string) => {
+    setAutoExpressionStatus("");
+    onPromptChange(value);
+  }, [onPromptChange]);
 
   return (
     <section className="space-y-2">
@@ -340,7 +442,7 @@ function ScriptEditor({
         ref={textareaRef}
         className="min-h-[260px] w-full resize-y rounded-lg border border-border bg-card px-3 py-3 text-sm leading-6 outline-none transition placeholder:text-muted-foreground/70 focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
         value={prompt}
-        onChange={(event) => onPromptChange(event.target.value)}
+        onChange={(event) => handlePromptChange(event.target.value)}
         placeholder="Write the spoken script here. Add expressive tags like [excited] or [short pause] where they should influence delivery."
       />
       {prompt.length > LONG_SCRIPT_WARNING_CHARACTERS ? (
@@ -361,7 +463,7 @@ function ScriptEditor({
           Auto-add expressions
         </Button>
         <span className="text-xs text-muted-foreground">
-          Adds reliable local audio tags from the script context.
+          {autoExpressionStatus || "Adds reliable local audio tags from the script context."}
         </span>
       </div>
       <TagInserter onInsert={insertTag} />
@@ -499,25 +601,50 @@ function StudioControls({
             </select>
           </div>
         </div>
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between gap-3">
-            <FieldLabel>Creativity</FieldLabel>
-            <span className="text-xs font-medium text-muted-foreground">
-              {state.temperature.toFixed(1)}
-            </span>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-3">
+              <FieldLabel>Accent Strength</FieldLabel>
+              <span className="text-xs font-medium text-muted-foreground">
+                {accentStrengthLabel(state.accentStrength)} - {state.accentStrength}%
+              </span>
+            </div>
+            <input
+              className="w-full accent-[#3353FE]"
+              type="range"
+              min={0}
+              max={100}
+              step={5}
+              value={state.accentStrength}
+              onChange={(event) =>
+                onChange({
+                  ...state,
+                  accentStrength: Number(event.target.value),
+                })
+              }
+              aria-label="Accent strength"
+            />
           </div>
-          <input
-            className="w-full accent-[#3353FE]"
-            type="range"
-            min={0}
-            max={2}
-            step={0.1}
-            value={state.temperature}
-            onChange={(event) =>
-              onChange({ ...state, temperature: Number(event.target.value) })
-            }
-            aria-label="Generation creativity"
-          />
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-3">
+              <FieldLabel>Creativity</FieldLabel>
+              <span className="text-xs font-medium text-muted-foreground">
+                {state.temperature.toFixed(1)}
+              </span>
+            </div>
+            <input
+              className="w-full accent-[#3353FE]"
+              type="range"
+              min={0}
+              max={2}
+              step={0.1}
+              value={state.temperature}
+              onChange={(event) =>
+                onChange({ ...state, temperature: Number(event.target.value) })
+              }
+              aria-label="Generation creativity"
+            />
+          </div>
         </div>
       </section>
 
@@ -1296,6 +1423,7 @@ export function TTSStudio() {
       outputFormat: state.outputFormat,
       temperature: state.temperature,
       accentPreset: state.accentPreset,
+      accentStrength: state.accentStrength,
       tonePreset: state.tonePreset,
       pacePreset: state.pacePreset,
       createdAt: now,
@@ -1351,6 +1479,7 @@ export function TTSStudio() {
       outputFormat: script.outputFormat ?? current.outputFormat,
       temperature: script.temperature ?? current.temperature,
       accentPreset: script.accentPreset ?? current.accentPreset,
+      accentStrength: script.accentStrength ?? current.accentStrength,
       tonePreset: script.tonePreset ?? current.tonePreset,
       pacePreset: script.pacePreset ?? current.pacePreset,
     }));
