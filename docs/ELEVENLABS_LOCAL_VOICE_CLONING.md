@@ -6,6 +6,8 @@ Date: 2026-05-01
 
 ThreeZinc Audio Studio will use ElevenLabs only for the first local custom-voice release. Other providers and Supabase are intentionally out of scope for this pass.
 
+Update: Instant Voice Clone is gated by ElevenLabs plan access. For local testing without buying ElevenLabs yet, the Instant Text tab also supports Fal MiniMax voice cloning through the existing `FAL_KEY`.
+
 This version is local-first:
 
 - `ELEVENLABS_API_KEY` stays server-side in `.env.local`.
@@ -23,6 +25,7 @@ Sources:
 - Voice Design API: `POST /v1/text-to-voice/design`, then `POST /v1/text-to-voice`
 - Reference-audio Voice Design API: `POST /v1/text-to-voice/design` with `eleven_ttv_v3`, `reference_audio_base64`, and typed preview text.
 - Voice Remix API: `POST /v1/text-to-voice/:voice_id/remix`, then `POST /v1/text-to-voice`
+- Fal MiniMax Voice Clone: `fal-ai/minimax/voice-clone` for upload-reference-audio plus typed text preview generation.
 
 ## Local Data Model
 

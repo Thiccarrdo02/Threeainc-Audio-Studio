@@ -150,6 +150,7 @@ test("storage and provider boundaries are documented in code", async () => {
   assert.match(route, /export const maxDuration = 60/);
   assert.match(route, /createStudioFileName/);
   assert.match(route, /threezinc-studio/);
+  assert.match(route, /sanitizeProviderMessage/);
   assert.equal(route.includes("NEXT_PUBLIC_FAL_KEY"), false);
   assert.match(eleven, /process\.env\.ELEVENLABS_API_KEY/);
   assert.match(customStore, /\.local/);
@@ -158,6 +159,7 @@ test("storage and provider boundaries are documented in code", async () => {
   assert.equal(customLab.includes("Custom Voice TTS"), false);
   assert.match(customLab, /VOICE_CONSENT_REQUIRED|I own this voice or have permission/);
   assert.match(customLab, /Instant Text/);
+  assert.match(customLab, /Fal MiniMax/);
   assert.match(customLab, /\/api\/custom-voices\/instant-text/);
   assert.match(customLab, /Upload reference voice/);
   assert.match(customLab, /Generate voice text/);

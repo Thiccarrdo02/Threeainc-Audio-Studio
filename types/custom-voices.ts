@@ -29,7 +29,9 @@ export interface CustomVoiceProfile {
 export interface VoicePreviewCandidate {
   id: string;
   generatedVoiceId: string;
-  audioDataUrl: string;
+  audioDataUrl?: string;
+  audioUrl?: string;
+  provider?: "elevenlabs" | "fal";
   mediaType: string;
   durationSecs?: number;
   text?: string;

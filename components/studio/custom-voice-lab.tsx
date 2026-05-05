@@ -51,6 +51,18 @@ const OUTPUT_OPTIONS = [
   { id: "mp3_22050_32", label: "Small MP3" },
 ];
 
+const INSTANT_TEXT_PROVIDER_OPTIONS = [
+  { id: "fal-minimax", label: "Fal MiniMax" },
+  { id: "elevenlabs", label: "ElevenLabs" },
+] as const;
+
+const FAL_MINIMAX_MODEL_OPTIONS = [
+  { id: "speech-02-hd", label: "Speech 02 HD" },
+  { id: "speech-02-turbo", label: "Speech 02 Turbo" },
+  { id: "speech-01-hd", label: "Speech 01 HD" },
+  { id: "speech-01-turbo", label: "Speech 01 Turbo" },
+];
+
 const DESIGN_PROMPTS = [
   "Warm Indian English creator voice, friendly, polished, confident",
   "Clear Hindi narrator voice, natural, expressive, premium studio tone",
@@ -187,7 +199,7 @@ function AudioUploadField({
         </span>
         <span className="text-sm font-semibold">{description}</span>
         <span className="text-xs text-muted-foreground">
-          MP3, WAV, M4A, AAC, or OGG audio
+          MP3, WAV, M4A, AAC, or OGG audio. For cloning, use 10+ seconds of clear speech.
         </span>
       </label>
       <input
@@ -506,29 +518,43 @@ function PreviewGrid({
                 </span>
               ) : null}
             </div>
-            <audio className="w-full" controls src={preview.audioDataUrl} />
+            <audio
+              className="w-full"
+              controls
+              src={preview.audioDataUrl ?? preview.audioUrl}
+            />
             <div className="flex flex-wrap gap-2">
               <a
                 className="inline-flex h-7 items-center justify-center gap-1 rounded-md border border-border bg-background px-2.5 text-[0.8rem] font-medium transition hover:bg-muted"
-                href={preview.audioDataUrl}
+                href={preview.audioDataUrl ?? preview.audioUrl}
                 download={`threezinc-voice-preview-${index + 1}.mp3`}
               >
                 <Download size={14} aria-hidden="true" />
                 Download
               </a>
-              <Button
-                type="button"
-                size="sm"
-                disabled={busy || !canSave}
-                onClick={() => onSave(preview)}
-              >
-                {busy ? (
-                  <Loader2 size={14} className="animate-spin" aria-hidden="true" />
-                ) : (
-                  <BadgeCheck size={14} aria-hidden="true" />
-                )}
-                Save voice
-              </Button>
+              {preview.provider !== "fal" ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={busy || !canSave}
+                  onClick={() => onSave(preview)}
+                >
+                  {busy ? (
+                    <Loader2
+                      size={14}
+                      className="animate-spin"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <BadgeCheck size={14} aria-hidden="true" />
+                  )}
+                  Save voice
+                </Button>
+              ) : (
+                <span className="inline-flex h-7 items-center rounded-md border border-border bg-background px-2.5 text-[0.8rem] text-muted-foreground">
+                  Fal clone is temporary
+                </span>
+              )}
             </div>
           </div>
         ))}
@@ -561,6 +587,10 @@ export function CustomVoiceLab() {
   const [labelUseCase, setLabelUseCase] = useState("creator");
 
   const [instantReferenceFiles, setInstantReferenceFiles] = useState<File[]>([]);
+  const [instantProvider, setInstantProvider] = useState<
+    (typeof INSTANT_TEXT_PROVIDER_OPTIONS)[number]["id"]
+  >("fal-minimax");
+  const [falMiniMaxModel, setFalMiniMaxModel] = useState("speech-02-hd");
   const [instantText, setInstantText] = useState("");
   const [instantDescription, setInstantDescription] = useState(
     "Match the uploaded reference speaker, preserving their accent, tone, and natural pacing.",
@@ -570,6 +600,9 @@ export function CustomVoiceLab() {
   const [instantQuality, setInstantQuality] = useState(0.9);
   const [instantGuidance, setInstantGuidance] = useState(5);
   const [instantSeed, setInstantSeed] = useState("");
+  const [instantNoiseReduction, setInstantNoiseReduction] = useState(true);
+  const [instantVolumeNormalization, setInstantVolumeNormalization] =
+    useState(true);
 
   const [voiceChangerFile, setVoiceChangerFile] = useState<File[]>([]);
   const [removeNoise, setRemoveNoise] = useState(true);
@@ -609,7 +642,7 @@ export function CustomVoiceLab() {
     !busy &&
     instantReferenceFiles.length === 1 &&
     instantDescription.trim().length >= 20 &&
-    instantText.trim().length >= 100 &&
+    instantText.trim().length >= (instantProvider === "fal-minimax" ? 1 : 100) &&
     instantText.trim().length <= 1000;
   const canConvert =
     !busy && Boolean(selectedVoiceId) && voiceChangerFile.length === 1;
@@ -724,6 +757,7 @@ export function CustomVoiceLab() {
   const createInstantTextPreviews = useCallback(() => {
     void runAction("instant-text", async () => {
       const formData = new FormData();
+      formData.set("provider", instantProvider);
       formData.set("description", instantDescription.trim());
       formData.set("text", instantText.trim());
       formData.set("outputFormat", outputFormat);
@@ -731,6 +765,12 @@ export function CustomVoiceLab() {
       formData.set("loudness", String(instantLoudness));
       formData.set("quality", String(instantQuality));
       formData.set("guidanceScale", String(instantGuidance));
+      formData.set("falModel", falMiniMaxModel);
+      formData.set("noiseReduction", String(instantNoiseReduction));
+      formData.set(
+        "volumeNormalization",
+        String(instantVolumeNormalization),
+      );
       if (instantSeed) {
         formData.set("seed", instantSeed);
       }
@@ -758,17 +798,21 @@ export function CustomVoiceLab() {
       setStatus("Generated reference voice text previews.");
     });
   }, [
-    instantDescription,
-    instantGuidance,
-    instantLoudness,
-    instantPromptStrength,
-    instantQuality,
-    instantReferenceFiles,
-    instantSeed,
-    instantText,
-    outputFormat,
-    runAction,
-  ]);
+      instantDescription,
+      falMiniMaxModel,
+      instantGuidance,
+      instantLoudness,
+      instantNoiseReduction,
+      instantProvider,
+      instantPromptStrength,
+      instantQuality,
+      instantReferenceFiles,
+      instantSeed,
+      instantText,
+      instantVolumeNormalization,
+      outputFormat,
+      runAction,
+    ]);
 
   const runVoiceChanger = useCallback(() => {
     void runAction("changer", async () => {
@@ -1152,8 +1196,51 @@ export function CustomVoiceLab() {
 
               <div className="rounded-lg border border-border bg-card px-3 py-3 text-sm text-muted-foreground">
                 Upload one reference voice, type the exact words you want spoken,
-                and generate matching voice previews without saving an Instant Voice
-                Clone first.
+                and generate matching voice previews. Fal MiniMax uses your
+                existing Fal balance and is selected by default.
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <FieldLabel>Provider</FieldLabel>
+                  <select
+                    className="h-9 w-full rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+                    value={instantProvider}
+                    onChange={(event) =>
+                      setInstantProvider(
+                        event.target
+                          .value as (typeof INSTANT_TEXT_PROVIDER_OPTIONS)[number]["id"],
+                      )
+                    }
+                  >
+                    {INSTANT_TEXT_PROVIDER_OPTIONS.map((provider) => (
+                      <option key={provider.id} value={provider.id}>
+                        {provider.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {instantProvider === "fal-minimax" ? (
+                  <div className="space-y-1.5">
+                    <FieldLabel>Fal model</FieldLabel>
+                    <select
+                      className="h-9 w-full rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+                      value={falMiniMaxModel}
+                      onChange={(event) => setFalMiniMaxModel(event.target.value)}
+                    >
+                      {FAL_MINIMAX_MODEL_OPTIONS.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
+                    ElevenLabs reference generation may still depend on account
+                    access for the selected model.
+                  </div>
+                )}
               </div>
 
               <AudioUploadField
@@ -1170,12 +1257,19 @@ export function CustomVoiceLab() {
                   className="min-h-36 w-full resize-y rounded-md border border-border bg-card px-3 py-2 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
                   value={instantText}
                   onChange={(event) => setInstantText(event.target.value)}
-                  placeholder="Type 100-1000 characters for the uploaded voice to say."
+                  placeholder={
+                    instantProvider === "fal-minimax"
+                      ? "Type the words for the uploaded voice to say."
+                      : "Type 100-1000 characters for the uploaded voice to say."
+                  }
                 />
                 <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
                   <span>
-                    {instantText.trim().length < 100
-                      ? "Needs at least 100 characters."
+                    {instantProvider !== "fal-minimax" &&
+                    instantText.trim().length < 100
+                      ? "ElevenLabs needs at least 100 characters."
+                      : instantText.trim().length === 0
+                        ? "Add target text."
                       : "Ready length."}
                   </span>
                   <span>{instantText.trim().length}/1000</span>
@@ -1227,6 +1321,43 @@ export function CustomVoiceLab() {
                 />
               </div>
 
+              {instantProvider === "fal-minimax" ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="flex items-start gap-2 rounded-lg border border-border bg-card px-3 py-3 text-sm">
+                    <input
+                      className="mt-0.5 accent-[#3353FE]"
+                      type="checkbox"
+                      checked={instantNoiseReduction}
+                      onChange={(event) =>
+                        setInstantNoiseReduction(event.target.checked)
+                      }
+                    />
+                    <span>
+                      Noise reduction
+                      <span className="block text-xs text-muted-foreground">
+                        Clean the reference sample before cloning.
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-2 rounded-lg border border-border bg-card px-3 py-3 text-sm">
+                    <input
+                      className="mt-0.5 accent-[#3353FE]"
+                      type="checkbox"
+                      checked={instantVolumeNormalization}
+                      onChange={(event) =>
+                        setInstantVolumeNormalization(event.target.checked)
+                      }
+                    />
+                    <span>
+                      Volume normalization
+                      <span className="block text-xs text-muted-foreground">
+                        Level the sample before generation.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              ) : null}
+
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <FieldLabel>Output</FieldLabel>
@@ -1273,7 +1404,7 @@ export function CustomVoiceLab() {
                 </Button>
                 {!canInstantText ? (
                   <span className="text-xs text-muted-foreground">
-                    Upload one reference file and enter 100-1000 characters.
+                    Upload one reference file and enter target text.
                   </span>
                 ) : null}
               </div>

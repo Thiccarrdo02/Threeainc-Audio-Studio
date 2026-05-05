@@ -93,6 +93,30 @@ function isRetryableProviderError(error: unknown): boolean {
   return true;
 }
 
+function providerErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  if (typeof error === "object" && error !== null) {
+    const candidate = error as Record<string, unknown>;
+    for (const key of ["message", "detail", "error"]) {
+      if (typeof candidate[key] === "string" && candidate[key].length > 0) {
+        return candidate[key];
+      }
+    }
+  }
+
+  return "Unknown provider error.";
+}
+
+function sanitizeProviderMessage(message: string) {
+  return message
+    .replace(/key[=:]\s*[^,\s"]+/gi, "key=[redacted]")
+    .replace(/authorization[=:]\s*[^,\s"]+/gi, "authorization=[redacted]")
+    .slice(0, 240);
+}
+
 function buildFalInput(request: ValidatedTTSRequest) {
   const input: Record<string, unknown> = {
     prompt: request.prompt,
@@ -261,11 +285,16 @@ export async function POST(request: Request) {
 
     return NextResponse.json(response);
   } catch (error) {
+    const providerMessage = sanitizeProviderMessage(providerErrorMessage(error));
     return errorResponse(
       502,
       "PROVIDER_GENERATION_FAILED",
-      "Audio generation failed. Please retry.",
+      `Audio generation failed: ${providerMessage}`,
       isRetryableProviderError(error),
+      {
+        provider: "fal",
+        model: MODEL_ID,
+      },
     );
   }
 }

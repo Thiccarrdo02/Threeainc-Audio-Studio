@@ -10,7 +10,7 @@ Local-first text-to-speech studio for creating polished voice audio with Fal/Gem
 - 30 selectable Fal/Gemini voice models.
 - English and Hindi static previews for every voice model.
 - Voice catalog search, gender filter, tone filter, and preview language switcher.
-- Separate ElevenLabs Voice Cloning Lab for instant cloning, instant reference voice text generation, voice changer, voice design, and voice remix.
+- Separate Voice Cloning Lab with ElevenLabs cloning/design/remix plus Fal MiniMax instant reference voice text generation for testing with existing Fal balance.
 - Multi-speaker voice assignment from the catalog with Speaker 1 and Speaker 2 assignment buttons.
 - Speaker chips above the script editor for inserting dialogue prefixes while writing.
 - Featured Indian language workflow with Hindi, English India, Marathi, Tamil, Telugu, Gujarati, Kannada, Malayalam, and Punjabi options.
