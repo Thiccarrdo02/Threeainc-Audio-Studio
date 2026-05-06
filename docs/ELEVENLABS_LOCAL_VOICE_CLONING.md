@@ -1,30 +1,34 @@
-# ElevenLabs Local Voice Cloning
+# Custom Voice Lab
 
-Date: 2026-05-01
+Date: 2026-05-06
 
 ## Direction
 
-ThreeZinc Audio Studio will use ElevenLabs only for the first local custom-voice release. Other providers and Supabase are intentionally out of scope for this pass.
-
-Update: Instant Voice Clone can still be gated by plan access even when credits exist. The local Voice Lab now uses one custom-voice provider path only; the previous MiniMax fallback has been removed.
+ThreeZinc Audio Studio keeps the main TTS Studio on the existing local-first
+Fal/Gemini flow. The separate Voice Lab adds custom voice workflows without
+requiring Supabase, SQLite, or local audio storage.
 
 This version is local-first:
 
-- `ELEVENLABS_API_KEY` stays server-side in `.env.local`.
+- Provider keys stay server-side in `.env.local`.
 - Custom voice metadata is stored in `.local/custom-voices.json`.
-- Voice-changer output is returned to the browser as a transient Blob URL for play/download.
-- Voice-changer output audio files are not written to disk.
-- Cloned voice IDs live in the connected ElevenLabs account and are referenced locally by metadata.
+- Generated audio is returned to the browser as a transient provider URL or
+  Blob URL for play/download.
+- Generated audio files are not written to disk.
+- Saved custom voice IDs live with their provider and are referenced locally by
+  metadata.
 - Provider names are kept out of the visible product UI.
 
-## ElevenLabs Features Used
+## Provider Features Used
 
 Sources:
 
-- Add Voice API: `POST /v1/voices/add`
+- Instant clone API: `fal-ai/minimax/voice-clone`
+- Saved clone speech API: `fal-ai/minimax/speech-02-hd`
+- Public voice library API: `GET /v1/shared-voices`
+- Add shared voice API: `POST /v1/voices/add/:public_user_id/:voice_id`
 - Voice Changer API: `POST /v1/speech-to-speech/:voice_id`
 - Create Voice API: `POST /v1/text-to-voice/design`, then `POST /v1/text-to-voice`
-- Reference-audio Create Voice API: `POST /v1/text-to-voice/design` with `eleven_ttv_v3`, `reference_audio_base64`, and typed preview text.
 - Voice Remix API: `POST /v1/text-to-voice/:voice_id/remix`, then `POST /v1/text-to-voice`
 - Saved Voice Speech API: `POST /v1/text-to-speech/:voice_id`
 
@@ -37,7 +41,7 @@ Stored in `.local/custom-voices.json`:
   "voices": [
     {
       "id": "local_voice_x",
-      "provider": "elevenlabs",
+      "provider": "fal",
       "voiceId": "provider_voice_id",
       "name": "Creator Voice",
       "description": "Warm creator voice",
@@ -61,34 +65,43 @@ Stored in `.local/custom-voices.json`:
 ## API Routes
 
 - `GET /api/custom-voices` lists local custom voices.
-- `POST /api/custom-voices/clone` uploads one or more audio samples and creates an instant clone.
-- `POST /api/custom-voices/instant-text` uploads one reference sample and target text to create same-voice preview audio without saving a clone first.
+- `POST /api/custom-voices/instant-clone` uploads one reference sample and
+  target text, creates a same-voice result, and stores the reusable clone ID in
+  local metadata.
+- `POST /api/custom-voices/clone` remains server-side for accounts that support
+  direct saved clone creation, but it is not the primary visible flow.
 - `POST /api/custom-voices/speech` generates text with a saved custom voice.
 - `POST /api/custom-voices/voice-changer` converts uploaded performance audio into the selected custom voice.
 - `POST /api/custom-voices/design` creates voice-design previews from a text description.
 - `POST /api/custom-voices/remix` creates voice-remix previews from an owned voice.
+- `GET /api/custom-voices/library` searches public voices.
+- `POST /api/custom-voices/library/import` imports a public voice into the local
+  library.
 - `POST /api/custom-voices/save-generated` saves a selected design/remix preview into the voice library.
-- `DELETE /api/custom-voices/:voiceId` deletes a voice from ElevenLabs and removes local metadata.
+- `DELETE /api/custom-voices/:voiceId` deletes/removes a saved voice through the
+  correct provider path and removes local metadata.
 
 ## UX
 
 Add a separate Voice Cloning Lab tab beside the main TTS Studio tab:
 
 - Voice Library: local list with selected voice, source badge, refresh, delete.
-- Instant Voice: upload one reference voice, type 100-1000 characters, set prompt influence/loudness/quality/guidance/seed, estimate ThreeZinc credits, generate preview audio, download or save chosen voice.
+- Instant Clone: upload one clear 10+ second reference voice, type target text,
+  choose clone quality, estimate ThreeZinc credits, generate output, save the
+  reusable clone ID, then continue in Use Voice.
 - Use Voice: select a saved custom voice, enter text, estimate ThreeZinc credits, tune stability/similarity/style/speed/speaker boost, generate transient output.
-- Clone Voice: name, description, metadata labels, styled audio uploader, sample cleanup toggle, consent checkbox, create button feedback.
 - Transform Audio: target voice summary, styled source-performance uploader, duration-based credit estimate, output format, seed, cleanup toggle, stability, similarity, style, speed, speaker boost, conversion output player.
-- Create Voice: prompt chips, loudness, quality, guidance, seed, previews, save chosen preview.
+- Create Voice: prompt preset chips, loudness, quality, guidance, seed, previews,
+  save chosen preview.
 - Voice Remix: remix selected custom voice with prompt-strength slider, previews, save variant.
+- Browse Voices: search public voices, audition previews, import to local library.
 
 ## Guardrails
 
-- Do not expose `ELEVENLABS_API_KEY` to the browser.
+- Do not expose provider keys to the browser.
 - Do not commit `.env.local` or `.local/custom-voices.json`.
 - Do not write voice-changer output audio to local files.
 - Do not write instant reference voice text preview audio to local files.
-- Require a consent checkbox before any clone upload.
 - Delete custom voices through the provider delete endpoint when the user deletes a local voice.
 
 ## Quality Defaults

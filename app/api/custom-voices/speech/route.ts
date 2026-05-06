@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { createCustomVoiceFileName, createSpeech } from "@/lib/elevenlabs";
+import { createFalSpeech } from "@/lib/fal-custom-voices";
 import { getCustomVoiceByProviderId } from "@/lib/local-custom-voices";
 import type { ElevenLabsVoiceSettings } from "@/types/custom-voices";
 import type { TTSApiError } from "@/types/tts";
@@ -39,6 +40,24 @@ export async function POST(request: Request) {
     }
 
     const localVoice = await getCustomVoiceByProviderId(voiceId);
+    const fileName = createCustomVoiceFileName(
+      localVoice?.name ?? "custom-voice",
+      "speech",
+    );
+
+    if (localVoice?.provider === "fal") {
+      const audio = await createFalSpeech({
+        voiceId,
+        text,
+        speed: settings.speed,
+      });
+      return NextResponse.json({
+        audio: audio.audio,
+        requestId: audio.requestId,
+        fileName,
+      });
+    }
+
     const audio = await createSpeech({
       voiceId,
       text,
@@ -46,10 +65,6 @@ export async function POST(request: Request) {
       seed,
       settings,
     });
-    const fileName = createCustomVoiceFileName(
-      localVoice?.name ?? "custom-voice",
-      "speech",
-    );
 
     return new NextResponse(audio.bytes, {
       headers: {

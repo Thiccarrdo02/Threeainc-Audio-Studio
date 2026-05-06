@@ -109,7 +109,10 @@ test("secret stays out of client/source files", async () => {
     "app/api/tts/generate/route.ts",
     "app/api/custom-voices/capabilities/route.ts",
     "app/api/custom-voices/clone/route.ts",
+    "app/api/custom-voices/instant-clone/route.ts",
     "app/api/custom-voices/instant-text/route.ts",
+    "app/api/custom-voices/library/route.ts",
+    "app/api/custom-voices/library/import/route.ts",
     "app/api/custom-voices/speech/route.ts",
     "app/api/custom-voices/voice-changer/route.ts",
     "app/api/custom-voices/design/route.ts",
@@ -118,6 +121,7 @@ test("secret stays out of client/source files", async () => {
     "components/studio/custom-voice-lab.tsx",
     "components/studio/tts-studio.tsx",
     "lib/elevenlabs.ts",
+    "lib/fal-custom-voices.ts",
     "lib/local-custom-voices.ts",
     "hooks/use-tts-generation.ts",
     "scripts/generate-voice-previews.mjs",
@@ -165,14 +169,15 @@ test("storage and provider boundaries are documented in code", async () => {
   assert.match(customLab, /VOICE_CONSENT_REQUIRED|I own this voice or have permission/);
   assert.match(customLab, /Instant Voice/);
   assert.equal(customLab.includes("Fal MiniMax"), false);
-  assert.match(customLab, /\/api\/custom-voices\/instant-text/);
+  assert.match(customLab, /\/api\/custom-voices\/instant-clone/);
   assert.match(customLab, /Upload reference voice/);
-  assert.match(customLab, /Generate instant voice/);
+  assert.match(customLab, /Clone voice and generate/);
   assert.match(customLab, /Use Voice/);
   assert.match(customLab, /Transform Audio/);
   assert.match(customLab, /Create Voice/);
   assert.match(customLab, /Create New Voice/);
   assert.match(customLab, /Voice Remix/);
+  assert.match(customLab, /Browse Voices/);
   assert.match(customLab, /Upload voice samples/);
   assert.match(customLab, /Create previews/);
   assert.match(customLab, /Generate remix previews/);

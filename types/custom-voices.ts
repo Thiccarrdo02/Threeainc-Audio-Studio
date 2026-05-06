@@ -2,7 +2,8 @@ export type CustomVoiceSource =
   | "instant-clone"
   | "instant-text"
   | "voice-design"
-  | "voice-remix";
+  | "voice-remix"
+  | "voice-library";
 
 export interface ElevenLabsVoiceSettings {
   stability: number;
@@ -14,7 +15,7 @@ export interface ElevenLabsVoiceSettings {
 
 export interface CustomVoiceProfile {
   id: string;
-  provider: "elevenlabs";
+  provider: "elevenlabs" | "fal";
   voiceId: string;
   name: string;
   description: string;
@@ -31,7 +32,7 @@ export interface VoicePreviewCandidate {
   generatedVoiceId: string;
   audioDataUrl?: string;
   audioUrl?: string;
-  provider?: "elevenlabs";
+  provider?: "elevenlabs" | "fal";
   mediaType: string;
   durationSecs?: number;
   text?: string;

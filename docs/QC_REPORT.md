@@ -1,6 +1,6 @@
 # Quality Control Report
 
-Date: 2026-05-01
+Date: 2026-05-06
 
 ## Command Gates
 
@@ -45,12 +45,14 @@ Date: 2026-05-01
 - Browser console is clean during smoke tests.
 - Vercel deployment config and deployment checklist are present.
 - Voice Cloning Lab is separated from the main Fal/Gemini TTS workspace.
-- Voice Cloning Lab renders local ElevenLabs clone, instant text, voice changer, design, and remix workflows.
+- Voice Lab renders Instant Clone, Use Voice, Transform, Create Voice, Remix, and Browse Voices workflows.
+- Instant Clone creates a reusable uploaded-voice ID and generates speech from the saved clone.
+- Browse Voices searches public Hindi voice options, imports to the local library, and generates speech from an imported voice.
 - Voice changer output remains transient browser audio and is not written to local project files.
 
 ## Security and Storage Checks
 
-- `FAL_KEY` is not present in source or docs.
+- Real provider keys are not present in source or docs.
 - `.env.local` is ignored by git.
 - Client code does not import `@fal-ai/client`.
 - Generated audio is not saved locally.
@@ -58,7 +60,7 @@ Date: 2026-05-01
 - No SQLite dependency exists.
 - No preview API route exists.
 - Vercel docs do not expose the Fal key and explicitly forbid `NEXT_PUBLIC_FAL_KEY`.
-- `ELEVENLABS_API_KEY` is server-side only and `.local/` custom voice metadata is git-ignored.
+- Custom voice provider keys are server-side only and `.local/` custom voice metadata is git-ignored.
 
 ## Dependency Audit
 
@@ -70,4 +72,4 @@ Date: 2026-05-01
 
 Generated user audio remains provider-hosted URL metadata only for V1. Durable cross-device history would require an account and storage layer, which is intentionally outside the current local-first scope.
 
-ElevenLabs custom voice output is returned as transient browser audio for local testing and is not written to tracked files or committed local storage.
+Custom voice output is returned as transient browser audio for local testing and is not written to tracked files or committed local storage.

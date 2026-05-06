@@ -39,6 +39,13 @@ export async function POST(request: Request) {
     }
 
     const localVoice = await getCustomVoiceByProviderId(voiceId);
+    if (localVoice?.provider === "fal") {
+      return errorResponse(
+        400,
+        "VOICE_TRANSFORM_TARGET_UNSUPPORTED",
+        "This uploaded instant clone can generate typed speech, but audio transform needs a created or imported library voice.",
+      );
+    }
     const audio = await convertSpeechToSpeech({
       voiceId,
       audio: audioFile,

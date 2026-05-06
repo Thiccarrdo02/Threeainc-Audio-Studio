@@ -26,6 +26,20 @@ export interface CustomVoiceSubscription {
   canUseProfessionalVoiceCloning: boolean;
 }
 
+export interface SharedVoiceSummary {
+  publicOwnerId: string;
+  voiceId: string;
+  name: string;
+  description: string;
+  accent?: string;
+  gender?: string;
+  age?: string;
+  useCase?: string;
+  language?: string;
+  previewUrl?: string;
+  category?: string;
+}
+
 function getApiKey() {
   const key = process.env.ELEVENLABS_API_KEY;
   if (!key) {
@@ -113,6 +127,91 @@ export async function getCustomVoiceSubscription(): Promise<CustomVoiceSubscript
     canUseProfessionalVoiceCloning:
       data.can_use_professional_voice_cloning === true,
   };
+}
+
+function mapSharedVoice(voice: Record<string, unknown>): SharedVoiceSummary {
+  const description = String(voice.description ?? "").replace(
+    /ElevenLabs/gi,
+    "the voice library",
+  );
+
+  return {
+    publicOwnerId: String(voice.public_owner_id ?? ""),
+    voiceId: String(voice.voice_id ?? ""),
+    name: String(voice.name ?? "Library voice"),
+    description,
+    accent: typeof voice.accent === "string" ? voice.accent : undefined,
+    gender: typeof voice.gender === "string" ? voice.gender : undefined,
+    age: typeof voice.age === "string" ? voice.age : undefined,
+    useCase: typeof voice.use_case === "string" ? voice.use_case : undefined,
+    language: typeof voice.language === "string" ? voice.language : undefined,
+    previewUrl:
+      typeof voice.preview_url === "string" ? voice.preview_url : undefined,
+    category: typeof voice.category === "string" ? voice.category : undefined,
+  };
+}
+
+export async function listSharedVoices({
+  search,
+  language,
+  pageSize = 18,
+}: {
+  search?: string;
+  language?: string;
+  pageSize?: number;
+}) {
+  const params = new URLSearchParams({
+    page_size: String(Math.min(100, Math.max(1, pageSize))),
+    sort: "trending",
+  });
+  if (search) {
+    params.set("search", search);
+  }
+  if (language) {
+    params.set("language", language);
+  }
+
+  const response = await elevenLabsFetch(`/v1/shared-voices?${params.toString()}`);
+  const data = await parseJsonResponse<{
+    voices?: Record<string, unknown>[];
+    has_more?: boolean;
+    total_count?: number;
+  }>(response);
+
+  return {
+    voices: (data.voices ?? [])
+      .map(mapSharedVoice)
+      .filter((voice) => voice.publicOwnerId && voice.voiceId),
+    hasMore: data.has_more === true,
+    totalCount:
+      typeof data.total_count === "number" ? data.total_count : undefined,
+  };
+}
+
+export async function addSharedVoiceToLibrary({
+  publicOwnerId,
+  voiceId,
+  name,
+}: {
+  publicOwnerId: string;
+  voiceId: string;
+  name: string;
+}) {
+  const response = await elevenLabsFetch(
+    `/v1/voices/add/${encodeURIComponent(publicOwnerId)}/${encodeURIComponent(
+      voiceId,
+    )}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        new_name: name,
+        bookmarked: true,
+      }),
+    },
+  );
+
+  return parseJsonResponse<{ voice_id: string }>(response);
 }
 
 export async function addInstantCloneVoice({

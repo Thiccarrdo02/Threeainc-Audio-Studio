@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { deleteElevenLabsVoice } from "@/lib/elevenlabs";
-import { removeCustomVoice } from "@/lib/local-custom-voices";
+import {
+  getCustomVoiceByProviderId,
+  removeCustomVoice,
+} from "@/lib/local-custom-voices";
 import type { TTSApiError } from "@/types/tts";
 
 export const runtime = "nodejs";
@@ -23,13 +26,16 @@ export async function DELETE(
   }
 
   try {
-    await deleteElevenLabsVoice(voiceId);
+    const existing = await getCustomVoiceByProviderId(voiceId);
+    if (!existing || existing.provider === "elevenlabs") {
+      await deleteElevenLabsVoice(voiceId);
+    }
     await removeCustomVoice(voiceId);
     return NextResponse.json({ status: "ok" });
   } catch (error) {
     return errorResponse(
       502,
-      "ELEVENLABS_DELETE_FAILED",
+      "CUSTOM_VOICE_DELETE_FAILED",
       error instanceof Error ? error.message : "Could not delete custom voice.",
     );
   }

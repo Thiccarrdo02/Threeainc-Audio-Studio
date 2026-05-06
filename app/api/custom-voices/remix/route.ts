@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { remixVoicePreviews } from "@/lib/elevenlabs";
+import { getCustomVoiceByProviderId } from "@/lib/local-custom-voices";
 import type { TTSApiError } from "@/types/tts";
 
 export const runtime = "nodejs";
@@ -29,6 +30,15 @@ export async function POST(request: Request) {
       );
     }
 
+    const localVoice = await getCustomVoiceByProviderId(voiceId);
+    if (localVoice?.provider === "fal") {
+      return errorResponse(
+        400,
+        "VOICE_REMIX_TARGET_UNSUPPORTED",
+        "Uploaded instant clones can generate typed speech. Remix needs a created or imported library voice.",
+      );
+    }
+
     const result = await remixVoicePreviews({
       voiceId,
       description,
@@ -38,7 +48,7 @@ export async function POST(request: Request) {
   } catch (error) {
     return errorResponse(
       502,
-      "ELEVENLABS_REMIX_FAILED",
+      "CUSTOM_VOICE_REMIX_FAILED",
       error instanceof Error ? error.message : "Voice remix failed.",
     );
   }

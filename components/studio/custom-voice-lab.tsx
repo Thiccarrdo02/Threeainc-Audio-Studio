@@ -42,7 +42,8 @@ type LabMode =
   | "clone"
   | "changer"
   | "design"
-  | "remix";
+  | "remix"
+  | "library";
 type BusyAction =
   | "refresh"
   | "clone"
@@ -51,6 +52,8 @@ type BusyAction =
   | "changer"
   | "design"
   | "remix"
+  | "library"
+  | "import"
   | "save"
   | "delete";
 
@@ -67,9 +70,29 @@ interface VoiceCapabilities {
   voiceLimit?: number;
 }
 
+interface SharedVoiceCard {
+  publicOwnerId: string;
+  voiceId: string;
+  name: string;
+  description: string;
+  accent?: string;
+  gender?: string;
+  age?: string;
+  useCase?: string;
+  language?: string;
+  previewUrl?: string;
+}
+
 const OUTPUT_OPTIONS = [
   { id: "mp3_44100_128", label: "MP3 44.1k" },
   { id: "mp3_22050_32", label: "Small MP3" },
+];
+
+const INSTANT_CLONE_MODELS = [
+  { id: "speech-02-hd", label: "High quality" },
+  { id: "speech-02-turbo", label: "Fast preview" },
+  { id: "speech-01-hd", label: "Classic quality" },
+  { id: "speech-01-turbo", label: "Classic fast" },
 ];
 
 const DESIGN_PROMPTS = [
@@ -77,6 +100,11 @@ const DESIGN_PROMPTS = [
   "Clear Hindi narrator voice, natural, expressive, premium studio tone",
   "Calm cinematic documentary voice, deep, controlled, high trust",
   "Energetic social media host voice, bright, quick, youthful",
+  "Modern woman voice, conversational, warm, premium, natural pacing",
+  "Movie trailer voice, deep, cinematic, resonant, controlled intensity",
+  "British executive voice, polished, assured, crisp, boardroom confident",
+  "Anime character voice, expressive, youthful, bright, high energy",
+  "Street interview voice, real, textured, imperfect, emotionally direct",
 ];
 
 const REMIX_PROMPTS = [
@@ -95,7 +123,10 @@ function labelSource(source: CustomVoiceSource) {
   if (source === "voice-remix") {
     return "Remix";
   }
-  return "Design";
+  if (source === "voice-library") {
+    return "Library";
+  }
+  return "Created";
 }
 
 function formatBytes(bytes: number) {
@@ -304,9 +335,37 @@ async function fetchVoiceCapabilities() {
   return (await response.json()) as VoiceCapabilities;
 }
 
+async function fetchSharedVoices(search: string) {
+  const params = new URLSearchParams();
+  if (search.trim()) {
+    params.set("search", search.trim());
+  }
+  const response = await fetch(`/api/custom-voices/library?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+  return (await response.json()) as { voices: SharedVoiceCard[] };
+}
+
 async function audioResultFromResponse(response: Response, label: string) {
   if (!response.ok) {
     throw new Error(await readError(response));
+  }
+
+  const contentType = response.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    const data = (await response.json()) as {
+      audio?: { url?: string; file_name?: string };
+      fileName?: string;
+    };
+    if (!data.audio?.url) {
+      throw new Error("Audio response did not include a playable URL.");
+    }
+    return {
+      url: data.audio.url,
+      fileName: data.fileName ?? data.audio.file_name ?? "threezinc-voice-output.mp3",
+      label,
+    };
   }
 
   const blob = await response.blob();
@@ -387,7 +446,7 @@ function VoiceLibraryPanel({
         <div className="space-y-2 rounded-lg border border-dashed border-border px-3 py-5 text-sm text-muted-foreground">
           <p>No custom voices yet.</p>
           <p>
-            Start with Instant Voice or Create Voice, then save a preview to use it
+            Start with Instant Clone or Create Voice, then save a preview to use it
             here.
           </p>
         </div>
@@ -632,14 +691,15 @@ export function CustomVoiceLab() {
   const [labelUseCase, setLabelUseCase] = useState("creator");
 
   const [instantReferenceFiles, setInstantReferenceFiles] = useState<File[]>([]);
+  const [instantVoiceName, setInstantVoiceName] = useState("Instant clone");
   const [instantText, setInstantText] = useState("");
   const [instantDescription, setInstantDescription] = useState(
-    "Match the uploaded reference speaker, preserving their accent, tone, and natural pacing.",
+    "Uploaded reference voice cloned for local custom speech.",
   );
-  const [instantPromptStrength, setInstantPromptStrength] = useState(0.35);
-  const [instantLoudness, setInstantLoudness] = useState(0.5);
-  const [instantGuidance, setInstantGuidance] = useState(5);
-  const [instantSeed, setInstantSeed] = useState("");
+  const [instantCloneModel, setInstantCloneModel] = useState("speech-02-hd");
+  const [instantNoiseReduction, setInstantNoiseReduction] = useState(true);
+  const [instantVolumeNormalization, setInstantVolumeNormalization] =
+    useState(true);
 
   const [speechText, setSpeechText] = useState("");
   const [speechSeed, setSpeechSeed] = useState("");
@@ -662,6 +722,8 @@ export function CustomVoiceLab() {
   const [designGuidance, setDesignGuidance] = useState(5);
   const [designSeed, setDesignSeed] = useState("");
   const [remixDescription, setRemixDescription] = useState("");
+  const [librarySearch, setLibrarySearch] = useState("");
+  const [sharedVoices, setSharedVoices] = useState<SharedVoiceCard[]>([]);
   const [promptStrength, setPromptStrength] = useState(0.5);
   const [previews, setPreviews] = useState<VoicePreviewCandidate[]>([]);
   const [previewSource, setPreviewSource] =
@@ -685,19 +747,25 @@ export function CustomVoiceLab() {
   const canInstantText =
     !busy &&
     instantReferenceFiles.length === 1 &&
-    instantDescription.trim().length >= 20 &&
-    instantText.trim().length >= 100 &&
-    instantText.trim().length <= 1000;
+    instantVoiceName.trim().length > 0 &&
+    instantText.trim().length >= 1 &&
+    instantText.trim().length <= 5000;
   const canSpeech =
     !busy &&
     Boolean(selectedVoiceId) &&
     speechText.trim().length > 0 &&
     speechText.trim().length <= 40000;
   const canConvert =
-    !busy && Boolean(selectedVoiceId) && voiceChangerFile.length === 1;
+    !busy &&
+    Boolean(selectedVoiceId) &&
+    selectedVoice?.provider === "elevenlabs" &&
+    voiceChangerFile.length === 1;
   const canDesign = !busy && designDescription.trim().length >= 20;
   const canRemix =
-    !busy && Boolean(selectedVoiceId) && remixDescription.trim().length >= 5;
+    !busy &&
+    Boolean(selectedVoiceId) &&
+    selectedVoice?.provider === "elevenlabs" &&
+    remixDescription.trim().length >= 5;
 
   const instantCostUsd = useMemo(
     () => estimateCustomVoiceTextCostUsd(countBillableCharacters(instantText)),
@@ -771,6 +839,21 @@ export function CustomVoiceLab() {
     };
   }, [voiceChangerFile]);
 
+  useEffect(() => {
+    if (mode !== "library" || sharedVoices.length > 0 || busyAction) {
+      return;
+    }
+
+    void Promise.resolve()
+      .then(async () => {
+        const result = await fetchSharedVoices(librarySearch);
+        setSharedVoices(result.voices);
+      })
+      .catch((caught) => {
+        setError(caught instanceof Error ? caught.message : "Could not load voices.");
+      });
+  }, [busyAction, librarySearch, mode, sharedVoices.length]);
+
   const runAction = useCallback(
     async (actionName: BusyAction, action: () => Promise<void>) => {
       setBusyAction(actionName);
@@ -842,15 +925,12 @@ export function CustomVoiceLab() {
   const createInstantTextPreviews = useCallback(() => {
     void runAction("instant-text", async () => {
       const formData = new FormData();
+      formData.set("voiceName", instantVoiceName.trim());
       formData.set("description", instantDescription.trim());
       formData.set("text", instantText.trim());
-      formData.set("outputFormat", outputFormat);
-      formData.set("promptStrength", String(instantPromptStrength));
-      formData.set("loudness", String(instantLoudness));
-      formData.set("guidanceScale", String(instantGuidance));
-      if (instantSeed) {
-        formData.set("seed", instantSeed);
-      }
+      formData.set("model", instantCloneModel);
+      formData.set("noiseReduction", String(instantNoiseReduction));
+      formData.set("volumeNormalization", String(instantVolumeNormalization));
       if (instantReferenceFiles[0]) {
         formData.set(
           "referenceAudio",
@@ -859,7 +939,7 @@ export function CustomVoiceLab() {
         );
       }
 
-      const response = await fetch("/api/custom-voices/instant-text", {
+      const response = await fetch("/api/custom-voices/instant-clone", {
         method: "POST",
         body: formData,
       });
@@ -867,25 +947,31 @@ export function CustomVoiceLab() {
         throw new Error(await readError(response));
       }
       const data = (await response.json()) as {
-        previews: VoicePreviewCandidate[];
+        audio: { url: string; file_name?: string };
+        voice: CustomVoiceProfile;
       };
-      setPreviews(data.previews);
-      setPreviewSource("instant-text");
-      setSaveName(`Instant voice ${voices.length + 1}`);
-      setSaveDescription(instantDescription.trim());
-      setStatus("Generated reference voice text previews.");
+      setAudioResult({
+        url: data.audio.url,
+        fileName: data.audio.file_name ?? "threezinc-instant-clone.mp3",
+        label: "Instant clone output",
+      });
+      const next = await refreshVoices();
+      setSelectedVoiceId(data.voice.voiceId);
+      setStatus(`Cloned and saved ${data.voice.name}.`);
+      if (next.length === 0) {
+        await refreshVoices();
+      }
     });
   }, [
       instantDescription,
-      instantGuidance,
-      instantLoudness,
-      instantPromptStrength,
+      instantCloneModel,
+      instantNoiseReduction,
       instantReferenceFiles,
-      instantSeed,
       instantText,
-      outputFormat,
+      instantVoiceName,
+      instantVolumeNormalization,
+      refreshVoices,
       runAction,
-      voices.length,
     ]);
 
   const generateSpeech = useCallback(() => {
@@ -1040,6 +1126,45 @@ export function CustomVoiceLab() {
     [previewSource, refreshVoices, runAction, saveDescription, saveName],
   );
 
+  const searchLibraryVoices = useCallback(() => {
+    void runAction("library", async () => {
+      const result = await fetchSharedVoices(librarySearch);
+      setSharedVoices(result.voices);
+      setStatus(
+        result.voices.length > 0
+          ? `Found ${result.voices.length} voices.`
+          : "No matching voices found.",
+      );
+    });
+  }, [librarySearch, runAction]);
+
+  const importLibraryVoice = useCallback(
+    (voice: SharedVoiceCard) => {
+      void runAction("import", async () => {
+        const response = await fetch("/api/custom-voices/library/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            publicOwnerId: voice.publicOwnerId,
+            voiceId: voice.voiceId,
+            name: voice.name,
+            description: voice.description,
+            previewUrl: voice.previewUrl,
+          }),
+        });
+        if (!response.ok) {
+          throw new Error(await readError(response));
+        }
+        const data = (await response.json()) as { voice: CustomVoiceProfile };
+        setStatus(`Imported ${data.voice.name}.`);
+        await refreshVoices();
+        setSelectedVoiceId(data.voice.voiceId);
+        setMode("speech");
+      });
+    },
+    [refreshVoices, runAction],
+  );
+
   const deleteVoice = useCallback(
     (voice: CustomVoiceProfile) => {
       if (!window.confirm(`Delete ${voice.name} from this voice library?`)) {
@@ -1119,12 +1244,12 @@ export function CustomVoiceLab() {
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-card p-1 text-sm sm:grid-cols-6">
             {[
-              ["instant-text", "Instant Voice"],
+              ["instant-text", "Instant Clone"],
               ["speech", "Use Voice"],
-              ["clone", "Clone Voice"],
               ["changer", "Transform"],
               ["design", "Create Voice"],
               ["remix", "Remix"],
+              ["library", "Browse Voices"],
             ].map(([id, label]) => (
               <button
                 key={id}
@@ -1312,18 +1437,46 @@ export function CustomVoiceLab() {
               <div className="flex items-center gap-2">
                 <Sparkles className="size-4 text-theme-primary" aria-hidden="true" />
                 <h2 className="font-heading text-lg font-semibold">
-                  Instant Voice
+                  Instant Voice Clone
                 </h2>
               </div>
 
               <div className="rounded-lg border border-border bg-card px-3 py-3 text-sm text-muted-foreground">
-                Upload one reference voice, type the exact words you want spoken,
-                and generate matching voice previews you can save to your library.
+                Upload a clear 10+ second reference voice, type the words you want
+                spoken, and get cloned speech back immediately. The cloned voice is
+                also added to your local library for reuse.
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <FieldLabel>Voice name</FieldLabel>
+                  <input
+                    className="h-9 w-full rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+                    value={instantVoiceName}
+                    onChange={(event) => setInstantVoiceName(event.target.value)}
+                    placeholder="Raza voice"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <FieldLabel>Clone model</FieldLabel>
+                  <select
+                    className="h-9 w-full rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+                    value={instantCloneModel}
+                    onChange={(event) => setInstantCloneModel(event.target.value)}
+                  >
+                    {INSTANT_CLONE_MODELS.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               <AudioUploadField
                 label="Reference voice"
                 description="Upload reference voice"
+                hint="MP3, WAV, M4A, AAC, or OGG. Use 10+ seconds of clean speech."
                 files={instantReferenceFiles}
                 onFiles={(files) => setInstantReferenceFiles(files.slice(0, 1))}
                 onRemove={() => setInstantReferenceFiles([])}
@@ -1335,87 +1488,53 @@ export function CustomVoiceLab() {
                   className="min-h-36 w-full resize-y rounded-md border border-border bg-card px-3 py-2 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
                   value={instantText}
                   onChange={(event) => setInstantText(event.target.value)}
-                  placeholder="Type 100-1000 characters for the uploaded voice to say."
+                  placeholder="Type the exact words for the uploaded voice to say."
                 />
                 <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
                   <span>
-                    {instantText.trim().length < 100
-                      ? "At least 100 characters gives the voice engine enough context."
-                      : instantText.trim().length === 0
-                        ? "Add target text."
+                    {instantText.trim().length === 0
+                      ? "Add target text."
                       : "Ready length."}
                   </span>
-                  <span>{instantText.trim().length}/1000</span>
+                  <span>{instantText.trim().length}/5000</span>
                 </div>
               </div>
 
-              <CreditEstimateCard
-                costUsd={instantCostUsd}
-              />
+              <CreditEstimateCard costUsd={instantCostUsd} />
 
               <div className="space-y-1.5">
-                <FieldLabel>Voice matching direction</FieldLabel>
+                <FieldLabel>Voice notes</FieldLabel>
                 <textarea
                   className="min-h-20 w-full resize-y rounded-md border border-border bg-card px-3 py-2 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
                   value={instantDescription}
                   onChange={(event) => setInstantDescription(event.target.value)}
-                  placeholder="Describe the reference speaker and how closely to preserve accent, tone, age, and pacing."
+                  placeholder="Optional notes for your local voice library."
                 />
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
-                <SliderField
-                  label="Prompt Influence"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={instantPromptStrength}
-                  onChange={setInstantPromptStrength}
-                />
-                <SliderField
-                  label="Loudness"
-                  min={-1}
-                  max={1}
-                  step={0.05}
-                  value={instantLoudness}
-                  onChange={setInstantLoudness}
-                />
-                <SliderField
-                  label="Guidance"
-                  min={0}
-                  max={20}
-                  step={0.5}
-                  value={instantGuidance}
-                  onChange={setInstantGuidance}
-                />
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <FieldLabel>Output</FieldLabel>
-                  <select
-                    className="h-9 w-full rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
-                    value={outputFormat}
-                    onChange={(event) => setOutputFormat(event.target.value)}
-                  >
-                    {OUTPUT_OPTIONS.map((format) => (
-                      <option key={format.id} value={format.id}>
-                        {format.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <FieldLabel>Seed</FieldLabel>
+                <label className="flex items-start gap-2 rounded-lg border border-border bg-card px-3 py-3 text-sm">
                   <input
-                    className="h-9 w-full rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
-                    value={instantSeed}
+                    className="mt-0.5 accent-[#3353FE]"
+                    type="checkbox"
+                    checked={instantNoiseReduction}
                     onChange={(event) =>
-                      setInstantSeed(event.target.value.replace(/\D/g, ""))
+                      setInstantNoiseReduction(event.target.checked)
                     }
-                    placeholder="Optional"
                   />
-                </div>
+                  <span>Clean background noise</span>
+                </label>
+                <label className="flex items-start gap-2 rounded-lg border border-border bg-card px-3 py-3 text-sm">
+                  <input
+                    className="mt-0.5 accent-[#3353FE]"
+                    type="checkbox"
+                    checked={instantVolumeNormalization}
+                    onChange={(event) =>
+                      setInstantVolumeNormalization(event.target.checked)
+                    }
+                  />
+                  <span>Normalize volume</span>
+                </label>
               </div>
 
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -1431,25 +1550,30 @@ export function CustomVoiceLab() {
                     <Sparkles size={14} aria-hidden="true" />
                   )}
                   {busyAction === "instant-text"
-                    ? "Generating..."
-                    : "Generate instant voice"}
+                    ? "Cloning..."
+                    : "Clone voice and generate"}
                 </Button>
                 {!canInstantText ? (
                   <span className="text-xs text-muted-foreground">
-                    Upload one reference file and enter target text.
+                    Add a voice name, upload one reference file, and enter target text.
                   </span>
                 ) : null}
               </div>
 
-              <PreviewGrid
-                previews={previewSource === "instant-text" ? previews : []}
-                saveName={saveName}
-                saveDescription={saveDescription}
-                busy={busyAction === "save"}
-                onSaveNameChange={setSaveName}
-                onSaveDescriptionChange={setSaveDescription}
-                onSave={savePreview}
-              />
+              {audioResult ? (
+                <div className="space-y-2 rounded-lg border border-border bg-card p-3">
+                  <FieldLabel>{audioResult.label}</FieldLabel>
+                  <audio className="w-full" controls src={audioResult.url} />
+                  <a
+                    className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-border bg-background px-2.5 text-[0.8rem] font-medium transition hover:bg-muted"
+                    href={audioResult.url}
+                    download={audioResult.fileName}
+                  >
+                    <Download size={14} aria-hidden="true" />
+                    Download
+                  </a>
+                </div>
+              ) : null}
             </section>
           ) : null}
 
@@ -1475,6 +1599,13 @@ export function CustomVoiceLab() {
                   ) : null}
                 </div>
               </div>
+
+              {selectedVoice?.provider === "fal" ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+                  This uploaded clone can speak typed text in Use Voice. For audio
+                  transform, choose an imported or created voice from the library.
+                </div>
+              ) : null}
 
               <div className="space-y-1.5">
                 <FieldLabel>Script</FieldLabel>
@@ -1586,6 +1717,13 @@ export function CustomVoiceLab() {
                   ) : null}
                 </div>
               </div>
+
+              {selectedVoice?.provider === "fal" ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+                  Uploaded instant clones are ready for typed speech. For audio
+                  transform, import or create a library voice first.
+                </div>
+              ) : null}
 
               <AudioUploadField
                 label="Source performance"
@@ -1789,6 +1927,13 @@ export function CustomVoiceLab() {
                 </p>
               </div>
 
+              {selectedVoice?.provider === "fal" ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+                  Uploaded instant clones can speak typed text. Remix currently
+                  works with created or imported library voices.
+                </div>
+              ) : null}
+
               <div className="space-y-2">
                 <FieldLabel>Remix direction</FieldLabel>
                 <textarea
@@ -1843,6 +1988,98 @@ export function CustomVoiceLab() {
                 onSaveDescriptionChange={setSaveDescription}
                 onSave={savePreview}
               />
+            </section>
+          ) : null}
+
+          {mode === "library" ? (
+            <section className="space-y-4 rounded-lg border border-border bg-background/90 p-4 shadow-sm">
+              <div className="flex items-center gap-2">
+                <Library className="size-4 text-theme-primary" aria-hidden="true" />
+                <h2 className="font-heading text-lg font-semibold">
+                  Browse Voices
+                </h2>
+              </div>
+
+              <div className="rounded-lg border border-border bg-card px-3 py-3 text-sm text-muted-foreground">
+                Search public voices, preview them, and import the ones you want
+                into your local library.
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+                <input
+                  className="h-10 w-full rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+                  value={librarySearch}
+                  onChange={(event) => setLibrarySearch(event.target.value)}
+                  placeholder="Search Hindi, Indian English, cinematic, creator..."
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={searchLibraryVoices}
+                  disabled={busyAction === "library"}
+                >
+                  {busyAction === "library" ? (
+                    <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Library size={14} aria-hidden="true" />
+                  )}
+                  Search
+                </Button>
+              </div>
+
+              {sharedVoices.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border px-3 py-5 text-sm text-muted-foreground">
+                  Search to load voice library options.
+                </div>
+              ) : (
+                <div className="grid gap-3 xl:grid-cols-2">
+                  {sharedVoices.map((voice) => (
+                    <div
+                      key={`${voice.publicOwnerId}-${voice.voiceId}`}
+                      className="space-y-2 rounded-lg border border-border bg-card p-3"
+                    >
+                      <div className="space-y-1">
+                        <p className="font-semibold">{voice.name}</p>
+                        <p className="line-clamp-2 text-xs text-muted-foreground">
+                          {voice.description || "Public voice library voice."}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 text-[0.68rem] text-muted-foreground">
+                        {[voice.language, voice.accent, voice.gender, voice.useCase]
+                          .filter(Boolean)
+                          .map((tag) => (
+                            <span
+                              key={tag}
+                              className="rounded border border-border bg-background px-1.5 py-0.5"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                      </div>
+                      {voice.previewUrl ? (
+                        <audio className="w-full" controls src={voice.previewUrl} />
+                      ) : null}
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={busyAction === "import"}
+                        onClick={() => importLibraryVoice(voice)}
+                      >
+                        {busyAction === "import" ? (
+                          <Loader2
+                            size={14}
+                            className="animate-spin"
+                            aria-hidden="true"
+                          />
+                        ) : (
+                          <BadgeCheck size={14} aria-hidden="true" />
+                        )}
+                        Add to library
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
           ) : null}
         </div>
