@@ -6,7 +6,7 @@ Date: 2026-05-01
 
 ThreeZinc Audio Studio will use ElevenLabs only for the first local custom-voice release. Other providers and Supabase are intentionally out of scope for this pass.
 
-Update: Instant Voice Clone is gated by ElevenLabs plan access. For local testing without buying ElevenLabs yet, the Instant Text tab also supports Fal MiniMax voice cloning through the existing `FAL_KEY`.
+Update: Instant Voice Clone can still be gated by plan access even when credits exist. The local Voice Lab now uses one custom-voice provider path only; the previous MiniMax fallback has been removed.
 
 This version is local-first:
 
@@ -15,6 +15,7 @@ This version is local-first:
 - Voice-changer output is returned to the browser as a transient Blob URL for play/download.
 - Voice-changer output audio files are not written to disk.
 - Cloned voice IDs live in the connected ElevenLabs account and are referenced locally by metadata.
+- Provider names are kept out of the visible product UI.
 
 ## ElevenLabs Features Used
 
@@ -22,10 +23,10 @@ Sources:
 
 - Add Voice API: `POST /v1/voices/add`
 - Voice Changer API: `POST /v1/speech-to-speech/:voice_id`
-- Voice Design API: `POST /v1/text-to-voice/design`, then `POST /v1/text-to-voice`
-- Reference-audio Voice Design API: `POST /v1/text-to-voice/design` with `eleven_ttv_v3`, `reference_audio_base64`, and typed preview text.
+- Create Voice API: `POST /v1/text-to-voice/design`, then `POST /v1/text-to-voice`
+- Reference-audio Create Voice API: `POST /v1/text-to-voice/design` with `eleven_ttv_v3`, `reference_audio_base64`, and typed preview text.
 - Voice Remix API: `POST /v1/text-to-voice/:voice_id/remix`, then `POST /v1/text-to-voice`
-- Fal MiniMax Voice Clone: `fal-ai/minimax/voice-clone` for upload-reference-audio plus typed text preview generation.
+- Saved Voice Speech API: `POST /v1/text-to-speech/:voice_id`
 
 ## Local Data Model
 
@@ -62,6 +63,7 @@ Stored in `.local/custom-voices.json`:
 - `GET /api/custom-voices` lists local custom voices.
 - `POST /api/custom-voices/clone` uploads one or more audio samples and creates an instant clone.
 - `POST /api/custom-voices/instant-text` uploads one reference sample and target text to create same-voice preview audio without saving a clone first.
+- `POST /api/custom-voices/speech` generates text with a saved custom voice.
 - `POST /api/custom-voices/voice-changer` converts uploaded performance audio into the selected custom voice.
 - `POST /api/custom-voices/design` creates voice-design previews from a text description.
 - `POST /api/custom-voices/remix` creates voice-remix previews from an owned voice.
@@ -73,10 +75,11 @@ Stored in `.local/custom-voices.json`:
 Add a separate Voice Cloning Lab tab beside the main TTS Studio tab:
 
 - Voice Library: local list with selected voice, source badge, refresh, delete.
-- Instant Clone: name, description, metadata labels, styled audio uploader, sample cleanup toggle, consent checkbox, create button feedback.
-- Instant Text: upload one reference voice, type 100-1000 characters, set prompt influence/loudness/quality/guidance/seed, generate preview audio, download or save chosen voice.
-- Voice Changer: target voice summary, styled source-performance uploader, output format, seed, cleanup toggle, stability, similarity, style, speed, speaker boost, conversion output player.
-- Voice Design: prompt chips, loudness, quality, guidance, seed, previews, save chosen preview.
+- Instant Voice: upload one reference voice, type 100-1000 characters, set prompt influence/loudness/quality/guidance/seed, estimate ThreeZinc credits, generate preview audio, download or save chosen voice.
+- Use Voice: select a saved custom voice, enter text, estimate ThreeZinc credits, tune stability/similarity/style/speed/speaker boost, generate transient output.
+- Clone Voice: name, description, metadata labels, styled audio uploader, sample cleanup toggle, consent checkbox, create button feedback.
+- Transform Audio: target voice summary, styled source-performance uploader, duration-based credit estimate, output format, seed, cleanup toggle, stability, similarity, style, speed, speaker boost, conversion output player.
+- Create Voice: prompt chips, loudness, quality, guidance, seed, previews, save chosen preview.
 - Voice Remix: remix selected custom voice with prompt-strength slider, previews, save variant.
 
 ## Guardrails

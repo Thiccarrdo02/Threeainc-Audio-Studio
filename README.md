@@ -10,7 +10,7 @@ Local-first text-to-speech studio for creating polished voice audio with Fal/Gem
 - 30 selectable Fal/Gemini voice models.
 - English and Hindi static previews for every voice model.
 - Voice catalog search, gender filter, tone filter, and preview language switcher.
-- Separate Voice Cloning Lab with ElevenLabs cloning/design/remix plus Fal MiniMax instant reference voice text generation for testing with existing Fal balance.
+- Separate Voice Lab for instant reference voices, saved-voice speech, cloning, design, transform, remix, and local voice management.
 - Multi-speaker voice assignment from the catalog with Speaker 1 and Speaker 2 assignment buttons.
 - Speaker chips above the script editor for inserting dialogue prefixes while writing.
 - Featured Indian language workflow with Hindi, English India, Marathi, Tamil, Telugu, Gujarati, Kannada, Malayalam, and Punjabi options.
@@ -24,7 +24,7 @@ Local-first text-to-speech studio for creating polished voice audio with Fal/Gem
 - Local automatic expression markup based on script context.
 - ThreeZinc credit estimates with a 0.5 credit minimum and 0.5 credit increments.
 - Browser-local saved scripts, settings, and generation history.
-- Sticky generated-audio player with play, pause, seek, volume, regenerate, close, and direct provider download.
+- Sticky generated-audio player with play, pause, seek, volume, regenerate, close, and direct download.
 
 ## Tech Stack
 
@@ -85,7 +85,7 @@ Add `FAL_KEY` in Vercel Project Settings for Preview and Production. Do not add 
 - The browser never imports `@fal-ai/client`.
 - The browser never receives provider API keys.
 - Generated audio files are not saved locally.
-- Generated audio is stored as provider URL plus metadata only.
+- Generated audio is stored as remote URL plus metadata only.
 - ElevenLabs custom voice metadata is stored locally in ignored `.local/custom-voices.json`.
 - ElevenLabs is not used for the main TTS workspace; Fal/Gemini remains the text-to-speech provider.
 - Generated output filenames use ThreeZinc names like `threezinc-studio-kore-...mp3`.

@@ -22,6 +22,13 @@ import { useCallback, useEffect, useId, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
+  countBillableCharacters,
+  estimateCreditsFromCostUsd,
+  estimateCustomVoiceTextCostUsd,
+  estimateCustomVoiceTransformCostUsd,
+  formatCredits,
+} from "@/lib/cost";
+import {
   DEFAULT_ELEVENLABS_SETTINGS,
   type CustomVoiceProfile,
   type CustomVoiceSource,
@@ -29,11 +36,18 @@ import {
   type VoicePreviewCandidate,
 } from "@/types/custom-voices";
 
-type LabMode = "clone" | "instant-text" | "changer" | "design" | "remix";
+type LabMode =
+  | "instant-text"
+  | "speech"
+  | "clone"
+  | "changer"
+  | "design"
+  | "remix";
 type BusyAction =
   | "refresh"
   | "clone"
   | "instant-text"
+  | "speech"
   | "changer"
   | "design"
   | "remix"
@@ -46,21 +60,16 @@ interface AudioResult {
   label: string;
 }
 
+interface VoiceCapabilities {
+  canUseInstantVoiceCloning: boolean;
+  canUseProfessionalVoiceCloning: boolean;
+  voiceSlotsUsed?: number;
+  voiceLimit?: number;
+}
+
 const OUTPUT_OPTIONS = [
   { id: "mp3_44100_128", label: "MP3 44.1k" },
   { id: "mp3_22050_32", label: "Small MP3" },
-];
-
-const INSTANT_TEXT_PROVIDER_OPTIONS = [
-  { id: "fal-minimax", label: "Fal MiniMax" },
-  { id: "elevenlabs", label: "ElevenLabs" },
-] as const;
-
-const FAL_MINIMAX_MODEL_OPTIONS = [
-  { id: "speech-02-hd", label: "Speech 02 HD" },
-  { id: "speech-02-turbo", label: "Speech 02 Turbo" },
-  { id: "speech-01-hd", label: "Speech 01 HD" },
-  { id: "speech-01-turbo", label: "Speech 01 Turbo" },
 ];
 
 const DESIGN_PROMPTS = [
@@ -81,7 +90,7 @@ function labelSource(source: CustomVoiceSource) {
     return "Clone";
   }
   if (source === "instant-text") {
-    return "Instant Text";
+    return "Instant Voice";
   }
   if (source === "voice-remix") {
     return "Remix";
@@ -172,6 +181,7 @@ function StatusBanner({
 function AudioUploadField({
   label,
   description,
+  hint = "MP3, WAV, M4A, AAC, or OGG audio.",
   files,
   multiple = false,
   onFiles,
@@ -179,6 +189,7 @@ function AudioUploadField({
 }: {
   label: string;
   description: string;
+  hint?: string;
   files: File[];
   multiple?: boolean;
   onFiles: (files: File[]) => void;
@@ -199,7 +210,7 @@ function AudioUploadField({
         </span>
         <span className="text-sm font-semibold">{description}</span>
         <span className="text-xs text-muted-foreground">
-          MP3, WAV, M4A, AAC, or OGG audio. For cloning, use 10+ seconds of clear speech.
+          {hint}
         </span>
       </label>
       <input
@@ -259,10 +270,21 @@ function AudioUploadField({
 async function readError(response: Response) {
   try {
     const data = await response.json();
-    return data?.error?.message ?? "Request failed.";
+    return sanitizeVisibleMessage(data?.error?.message ?? "Request failed.");
   } catch {
     return "Request failed.";
   }
+}
+
+function sanitizeVisibleMessage(message: string) {
+  if (/subscription.*instant voice cloning|instant cloning.*not enabled/i.test(message)) {
+    return "Instant cloning is not enabled on this account yet. Use Instant Voice or Create Voice to make saved voices.";
+  }
+
+  return message
+    .replace(/ElevenLabs/gi, "the voice engine")
+    .replace(/Fal\s*MiniMax/gi, "the previous voice engine")
+    .replace(/Fal/gi, "the previous voice engine");
 }
 
 async function fetchVoices() {
@@ -272,6 +294,14 @@ async function fetchVoices() {
   }
   const data = (await response.json()) as { voices: CustomVoiceProfile[] };
   return data.voices;
+}
+
+async function fetchVoiceCapabilities() {
+  const response = await fetch("/api/custom-voices/capabilities");
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+  return (await response.json()) as VoiceCapabilities;
 }
 
 async function audioResultFromResponse(response: Response, label: string) {
@@ -284,9 +314,24 @@ async function audioResultFromResponse(response: Response, label: string) {
     url: URL.createObjectURL(blob),
     fileName:
       response.headers.get("X-ThreeZinc-File-Name") ??
-      "threezinc-elevenlabs-voice-changer.mp3",
+      "threezinc-voice-output.mp3",
     label,
   };
+}
+
+function CreditEstimateCard({
+  costUsd,
+}: {
+  costUsd: number;
+}) {
+  const credits = estimateCreditsFromCostUsd(costUsd);
+
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-3 text-sm">
+      <p className="font-semibold">Estimated credits</p>
+      <p className="font-semibold text-theme-primary">{formatCredits(credits)}</p>
+    </div>
+  );
 }
 
 function VoiceLibraryPanel({
@@ -333,14 +378,18 @@ function VoiceLibraryPanel({
           <p className="text-lg font-semibold">{voices.length}</p>
         </div>
         <div className="rounded-lg border border-border bg-card px-3 py-2">
-          <p className="text-xs text-muted-foreground">Storage</p>
-          <p className="text-sm font-semibold">Local JSON</p>
+          <p className="text-xs text-muted-foreground">Library</p>
+          <p className="text-sm font-semibold">Local workspace</p>
         </div>
       </div>
 
       {voices.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border px-3 py-5 text-sm text-muted-foreground">
-          No custom voices yet.
+        <div className="space-y-2 rounded-lg border border-dashed border-border px-3 py-5 text-sm text-muted-foreground">
+          <p>No custom voices yet.</p>
+          <p>
+            Start with Instant Voice or Create Voice, then save a preview to use it
+            here.
+          </p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -532,29 +581,23 @@ function PreviewGrid({
                 <Download size={14} aria-hidden="true" />
                 Download
               </a>
-              {preview.provider !== "fal" ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={busy || !canSave}
-                  onClick={() => onSave(preview)}
-                >
-                  {busy ? (
-                    <Loader2
-                      size={14}
-                      className="animate-spin"
-                      aria-hidden="true"
-                    />
-                  ) : (
-                    <BadgeCheck size={14} aria-hidden="true" />
-                  )}
-                  Save voice
-                </Button>
-              ) : (
-                <span className="inline-flex h-7 items-center rounded-md border border-border bg-background px-2.5 text-[0.8rem] text-muted-foreground">
-                  Fal clone is temporary
-                </span>
-              )}
+              <Button
+                type="button"
+                size="sm"
+                disabled={busy || !canSave}
+                onClick={() => onSave(preview)}
+              >
+                {busy ? (
+                  <Loader2
+                    size={14}
+                    className="animate-spin"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <BadgeCheck size={14} aria-hidden="true" />
+                )}
+                Save to library
+              </Button>
             </div>
           </div>
         ))}
@@ -569,12 +612,14 @@ function PreviewGrid({
 }
 
 export function CustomVoiceLab() {
-  const [mode, setMode] = useState<LabMode>("clone");
+  const [mode, setMode] = useState<LabMode>("instant-text");
   const [voices, setVoices] = useState<CustomVoiceProfile[]>([]);
   const [selectedVoiceId, setSelectedVoiceId] = useState("");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [busyAction, setBusyAction] = useState<BusyAction | null>(null);
+  const [voiceCapabilities, setVoiceCapabilities] =
+    useState<VoiceCapabilities | null>(null);
 
   const [cloneName, setCloneName] = useState("");
   const [cloneDescription, setCloneDescription] = useState("");
@@ -587,24 +632,22 @@ export function CustomVoiceLab() {
   const [labelUseCase, setLabelUseCase] = useState("creator");
 
   const [instantReferenceFiles, setInstantReferenceFiles] = useState<File[]>([]);
-  const [instantProvider, setInstantProvider] = useState<
-    (typeof INSTANT_TEXT_PROVIDER_OPTIONS)[number]["id"]
-  >("fal-minimax");
-  const [falMiniMaxModel, setFalMiniMaxModel] = useState("speech-02-hd");
   const [instantText, setInstantText] = useState("");
   const [instantDescription, setInstantDescription] = useState(
     "Match the uploaded reference speaker, preserving their accent, tone, and natural pacing.",
   );
   const [instantPromptStrength, setInstantPromptStrength] = useState(0.35);
   const [instantLoudness, setInstantLoudness] = useState(0.5);
-  const [instantQuality, setInstantQuality] = useState(0.9);
   const [instantGuidance, setInstantGuidance] = useState(5);
   const [instantSeed, setInstantSeed] = useState("");
-  const [instantNoiseReduction, setInstantNoiseReduction] = useState(true);
-  const [instantVolumeNormalization, setInstantVolumeNormalization] =
-    useState(true);
+
+  const [speechText, setSpeechText] = useState("");
+  const [speechSeed, setSpeechSeed] = useState("");
 
   const [voiceChangerFile, setVoiceChangerFile] = useState<File[]>([]);
+  const [voiceChangerDurationSecs, setVoiceChangerDurationSecs] = useState<
+    number | null
+  >(null);
   const [removeNoise, setRemoveNoise] = useState(true);
   const [audioResult, setAudioResult] = useState<AudioResult | null>(null);
   const [outputFormat, setOutputFormat] = useState("mp3_44100_128");
@@ -637,18 +680,37 @@ export function CustomVoiceLab() {
     cloneName.trim().length > 0 &&
     cloneDescription.trim().length >= 10 &&
     cloneFiles.length > 0 &&
-    cloneConsent;
+    cloneConsent &&
+    voiceCapabilities?.canUseInstantVoiceCloning !== false;
   const canInstantText =
     !busy &&
     instantReferenceFiles.length === 1 &&
     instantDescription.trim().length >= 20 &&
-    instantText.trim().length >= (instantProvider === "fal-minimax" ? 1 : 100) &&
+    instantText.trim().length >= 100 &&
     instantText.trim().length <= 1000;
+  const canSpeech =
+    !busy &&
+    Boolean(selectedVoiceId) &&
+    speechText.trim().length > 0 &&
+    speechText.trim().length <= 40000;
   const canConvert =
     !busy && Boolean(selectedVoiceId) && voiceChangerFile.length === 1;
   const canDesign = !busy && designDescription.trim().length >= 20;
   const canRemix =
     !busy && Boolean(selectedVoiceId) && remixDescription.trim().length >= 5;
+
+  const instantCostUsd = useMemo(
+    () => estimateCustomVoiceTextCostUsd(countBillableCharacters(instantText)),
+    [instantText],
+  );
+  const speechCostUsd = useMemo(
+    () => estimateCustomVoiceTextCostUsd(countBillableCharacters(speechText)),
+    [speechText],
+  );
+  const transformCostUsd = useMemo(
+    () => estimateCustomVoiceTransformCostUsd(voiceChangerDurationSecs ?? 0),
+    [voiceChangerDurationSecs],
+  );
 
   const refreshVoices = useCallback(async () => {
     setBusyAction("refresh");
@@ -668,7 +730,11 @@ export function CustomVoiceLab() {
 
   useEffect(() => {
     void Promise.resolve()
-      .then(refreshVoices)
+      .then(async () => {
+        await refreshVoices();
+        const capabilities = await fetchVoiceCapabilities();
+        setVoiceCapabilities(capabilities);
+      })
       .catch((caught) => {
         setError(caught instanceof Error ? caught.message : "Could not load voices.");
       });
@@ -682,6 +748,29 @@ export function CustomVoiceLab() {
     };
   }, [audioResult]);
 
+  useEffect(() => {
+    const file = voiceChangerFile[0];
+    if (!file) {
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    const audio = new Audio(objectUrl);
+    audio.preload = "metadata";
+    audio.onloadedmetadata = () => {
+      setVoiceChangerDurationSecs(
+        Number.isFinite(audio.duration) ? audio.duration : null,
+      );
+    };
+    audio.onerror = () => setVoiceChangerDurationSecs(null);
+
+    return () => {
+      URL.revokeObjectURL(objectUrl);
+      audio.onloadedmetadata = null;
+      audio.onerror = null;
+    };
+  }, [voiceChangerFile]);
+
   const runAction = useCallback(
     async (actionName: BusyAction, action: () => Promise<void>) => {
       setBusyAction(actionName);
@@ -691,11 +780,7 @@ export function CustomVoiceLab() {
         await action();
       } catch (caught) {
         const message = caught instanceof Error ? caught.message : "Request failed.";
-        setError(
-          /subscription.*instant voice cloning/i.test(message)
-            ? `${message} Use Instant Text for upload-and-generate without saving an Instant Voice Clone.`
-            : message,
-        );
+        setError(sanitizeVisibleMessage(message));
       } finally {
         setBusyAction(null);
       }
@@ -738,7 +823,7 @@ export function CustomVoiceLab() {
       setStatus(`Created ${data.voice.name}.`);
       await refreshVoices();
       setSelectedVoiceId(data.voice.voiceId);
-      setMode("changer");
+      setMode("speech");
     });
   }, [
     cloneConsent,
@@ -757,20 +842,12 @@ export function CustomVoiceLab() {
   const createInstantTextPreviews = useCallback(() => {
     void runAction("instant-text", async () => {
       const formData = new FormData();
-      formData.set("provider", instantProvider);
       formData.set("description", instantDescription.trim());
       formData.set("text", instantText.trim());
       formData.set("outputFormat", outputFormat);
       formData.set("promptStrength", String(instantPromptStrength));
       formData.set("loudness", String(instantLoudness));
-      formData.set("quality", String(instantQuality));
       formData.set("guidanceScale", String(instantGuidance));
-      formData.set("falModel", falMiniMaxModel);
-      formData.set("noiseReduction", String(instantNoiseReduction));
-      formData.set(
-        "volumeNormalization",
-        String(instantVolumeNormalization),
-      );
       if (instantSeed) {
         formData.set("seed", instantSeed);
       }
@@ -794,28 +871,52 @@ export function CustomVoiceLab() {
       };
       setPreviews(data.previews);
       setPreviewSource("instant-text");
+      setSaveName(`Instant voice ${voices.length + 1}`);
       setSaveDescription(instantDescription.trim());
       setStatus("Generated reference voice text previews.");
     });
   }, [
       instantDescription,
-      falMiniMaxModel,
       instantGuidance,
       instantLoudness,
-      instantNoiseReduction,
-      instantProvider,
       instantPromptStrength,
-      instantQuality,
       instantReferenceFiles,
       instantSeed,
       instantText,
-      instantVolumeNormalization,
       outputFormat,
       runAction,
+      voices.length,
     ]);
+
+  const generateSpeech = useCallback(() => {
+    void runAction("speech", async () => {
+      setAudioResult(null);
+      const response = await fetch("/api/custom-voices/speech", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          voiceId: selectedVoiceId,
+          text: speechText.trim(),
+          outputFormat,
+          seed: speechSeed ? Number(speechSeed) : undefined,
+          settings,
+        }),
+      });
+      setAudioResult(await audioResultFromResponse(response, "Generated speech"));
+      setStatus("Generated speech with the selected voice.");
+    });
+  }, [
+    outputFormat,
+    runAction,
+    selectedVoiceId,
+    settings,
+    speechSeed,
+    speechText,
+  ]);
 
   const runVoiceChanger = useCallback(() => {
     void runAction("changer", async () => {
+      setAudioResult(null);
       const formData = new FormData();
       formData.set("voiceId", selectedVoiceId);
       formData.set("outputFormat", outputFormat);
@@ -832,7 +933,7 @@ export function CustomVoiceLab() {
         method: "POST",
         body: formData,
       });
-      setAudioResult(await audioResultFromResponse(response, "Voice changer output"));
+      setAudioResult(await audioResultFromResponse(response, "Transformed audio"));
       setStatus("Converted source performance.");
     });
   }, [
@@ -867,8 +968,9 @@ export function CustomVoiceLab() {
       };
       setPreviews(data.previews);
       setPreviewSource("voice-design");
+      setSaveName(`Designed voice ${voices.length + 1}`);
       setSaveDescription(designDescription.trim());
-      setStatus("Generated voice design previews.");
+      setStatus("Created voice previews.");
     });
   }, [
     designDescription,
@@ -877,6 +979,7 @@ export function CustomVoiceLab() {
     designQuality,
     designSeed,
     runAction,
+    voices.length,
   ]);
 
   const createRemixPreviews = useCallback(() => {
@@ -898,10 +1001,17 @@ export function CustomVoiceLab() {
       };
       setPreviews(data.previews);
       setPreviewSource("voice-remix");
+      setSaveName(`${selectedVoice?.name ?? "Custom voice"} remix`);
       setSaveDescription(remixDescription.trim());
       setStatus("Generated remix previews.");
     });
-  }, [promptStrength, remixDescription, runAction, selectedVoiceId]);
+  }, [
+    promptStrength,
+    remixDescription,
+    runAction,
+    selectedVoice?.name,
+    selectedVoiceId,
+  ]);
 
   const savePreview = useCallback(
     (preview: VoicePreviewCandidate) => {
@@ -924,6 +1034,7 @@ export function CustomVoiceLab() {
         setPreviews([]);
         await refreshVoices();
         setSelectedVoiceId(data.voice.voiceId);
+        setMode("speech");
       });
     },
     [previewSource, refreshVoices, runAction, saveDescription, saveName],
@@ -931,7 +1042,7 @@ export function CustomVoiceLab() {
 
   const deleteVoice = useCallback(
     (voice: CustomVoiceProfile) => {
-      if (!window.confirm(`Delete ${voice.name} from ElevenLabs and this local library?`)) {
+      if (!window.confirm(`Delete ${voice.name} from this voice library?`)) {
         return;
       }
 
@@ -962,22 +1073,22 @@ export function CustomVoiceLab() {
               </div>
               <div>
                 <h1 className="font-heading text-xl font-semibold">
-                  Voice Cloning Lab
+                  Voice Lab
                 </h1>
                 <p className="text-sm text-muted-foreground">
-                  ElevenLabs cloning, voice changer, design, and remix workspace.
+                  Create, save, transform, and reuse custom ThreeZinc voices.
                 </p>
               </div>
             </div>
           </div>
           <div className="grid gap-2 text-xs sm:grid-cols-3">
             <div className="rounded-lg border border-border bg-card px-3 py-2">
-              <p className="text-muted-foreground">Provider</p>
-              <p className="font-semibold">ElevenLabs only</p>
+              <p className="text-muted-foreground">Flow</p>
+              <p className="font-semibold">Create first</p>
             </div>
             <div className="rounded-lg border border-border bg-card px-3 py-2">
               <p className="text-muted-foreground">Keys</p>
-              <p className="font-semibold">Server-side</p>
+              <p className="font-semibold">Private server</p>
             </div>
             <div className="rounded-lg border border-border bg-card px-3 py-2">
               <p className="text-muted-foreground">Audio storage</p>
@@ -1006,12 +1117,13 @@ export function CustomVoiceLab() {
         />
 
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-card p-1 text-sm sm:grid-cols-5">
+          <div className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-card p-1 text-sm sm:grid-cols-6">
             {[
-              ["clone", "Clone"],
-              ["instant-text", "Instant Text"],
-              ["changer", "Voice Changer"],
-              ["design", "Design"],
+              ["instant-text", "Instant Voice"],
+              ["speech", "Use Voice"],
+              ["clone", "Clone Voice"],
+              ["changer", "Transform"],
+              ["design", "Create Voice"],
               ["remix", "Remix"],
             ].map(([id, label]) => (
               <button
@@ -1026,6 +1138,7 @@ export function CustomVoiceLab() {
                   setMode(id as LabMode);
                   setError("");
                   setStatus("");
+                  setAudioResult(null);
                 }}
               >
                 {label}
@@ -1044,6 +1157,13 @@ export function CustomVoiceLab() {
                   Instant Voice Clone
                 </h2>
               </div>
+
+              {voiceCapabilities?.canUseInstantVoiceCloning === false ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+                  Instant cloning is not enabled on this account yet. Use Instant
+                  Voice or Create Voice to make saved voices now.
+                </div>
+              ) : null}
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
@@ -1178,7 +1298,9 @@ export function CustomVoiceLab() {
                 </Button>
                 {!canClone ? (
                   <span className="text-xs text-muted-foreground">
-                    Add name, description, samples, and consent to enable cloning.
+                    {voiceCapabilities?.canUseInstantVoiceCloning === false
+                      ? "Instant cloning needs to be enabled on the voice account."
+                      : "Add name, description, samples, and consent to enable cloning."}
                   </span>
                 ) : null}
               </div>
@@ -1190,57 +1312,13 @@ export function CustomVoiceLab() {
               <div className="flex items-center gap-2">
                 <Sparkles className="size-4 text-theme-primary" aria-hidden="true" />
                 <h2 className="font-heading text-lg font-semibold">
-                  Instant Voice Text
+                  Instant Voice
                 </h2>
               </div>
 
               <div className="rounded-lg border border-border bg-card px-3 py-3 text-sm text-muted-foreground">
                 Upload one reference voice, type the exact words you want spoken,
-                and generate matching voice previews. Fal MiniMax uses your
-                existing Fal balance and is selected by default.
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <FieldLabel>Provider</FieldLabel>
-                  <select
-                    className="h-9 w-full rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
-                    value={instantProvider}
-                    onChange={(event) =>
-                      setInstantProvider(
-                        event.target
-                          .value as (typeof INSTANT_TEXT_PROVIDER_OPTIONS)[number]["id"],
-                      )
-                    }
-                  >
-                    {INSTANT_TEXT_PROVIDER_OPTIONS.map((provider) => (
-                      <option key={provider.id} value={provider.id}>
-                        {provider.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {instantProvider === "fal-minimax" ? (
-                  <div className="space-y-1.5">
-                    <FieldLabel>Fal model</FieldLabel>
-                    <select
-                      className="h-9 w-full rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
-                      value={falMiniMaxModel}
-                      onChange={(event) => setFalMiniMaxModel(event.target.value)}
-                    >
-                      {FAL_MINIMAX_MODEL_OPTIONS.map((model) => (
-                        <option key={model.id} value={model.id}>
-                          {model.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ) : (
-                  <div className="rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
-                    ElevenLabs reference generation may still depend on account
-                    access for the selected model.
-                  </div>
-                )}
+                and generate matching voice previews you can save to your library.
               </div>
 
               <AudioUploadField
@@ -1257,17 +1335,12 @@ export function CustomVoiceLab() {
                   className="min-h-36 w-full resize-y rounded-md border border-border bg-card px-3 py-2 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
                   value={instantText}
                   onChange={(event) => setInstantText(event.target.value)}
-                  placeholder={
-                    instantProvider === "fal-minimax"
-                      ? "Type the words for the uploaded voice to say."
-                      : "Type 100-1000 characters for the uploaded voice to say."
-                  }
+                  placeholder="Type 100-1000 characters for the uploaded voice to say."
                 />
                 <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
                   <span>
-                    {instantProvider !== "fal-minimax" &&
-                    instantText.trim().length < 100
-                      ? "ElevenLabs needs at least 100 characters."
+                    {instantText.trim().length < 100
+                      ? "At least 100 characters gives the voice engine enough context."
                       : instantText.trim().length === 0
                         ? "Add target text."
                       : "Ready length."}
@@ -1275,6 +1348,10 @@ export function CustomVoiceLab() {
                   <span>{instantText.trim().length}/1000</span>
                 </div>
               </div>
+
+              <CreditEstimateCard
+                costUsd={instantCostUsd}
+              />
 
               <div className="space-y-1.5">
                 <FieldLabel>Voice matching direction</FieldLabel>
@@ -1304,14 +1381,6 @@ export function CustomVoiceLab() {
                   onChange={setInstantLoudness}
                 />
                 <SliderField
-                  label="Quality"
-                  min={-1}
-                  max={1}
-                  step={0.05}
-                  value={instantQuality}
-                  onChange={setInstantQuality}
-                />
-                <SliderField
                   label="Guidance"
                   min={0}
                   max={20}
@@ -1320,43 +1389,6 @@ export function CustomVoiceLab() {
                   onChange={setInstantGuidance}
                 />
               </div>
-
-              {instantProvider === "fal-minimax" ? (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="flex items-start gap-2 rounded-lg border border-border bg-card px-3 py-3 text-sm">
-                    <input
-                      className="mt-0.5 accent-[#3353FE]"
-                      type="checkbox"
-                      checked={instantNoiseReduction}
-                      onChange={(event) =>
-                        setInstantNoiseReduction(event.target.checked)
-                      }
-                    />
-                    <span>
-                      Noise reduction
-                      <span className="block text-xs text-muted-foreground">
-                        Clean the reference sample before cloning.
-                      </span>
-                    </span>
-                  </label>
-                  <label className="flex items-start gap-2 rounded-lg border border-border bg-card px-3 py-3 text-sm">
-                    <input
-                      className="mt-0.5 accent-[#3353FE]"
-                      type="checkbox"
-                      checked={instantVolumeNormalization}
-                      onChange={(event) =>
-                        setInstantVolumeNormalization(event.target.checked)
-                      }
-                    />
-                    <span>
-                      Volume normalization
-                      <span className="block text-xs text-muted-foreground">
-                        Level the sample before generation.
-                      </span>
-                    </span>
-                  </label>
-                </div>
-              ) : null}
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
@@ -1400,7 +1432,7 @@ export function CustomVoiceLab() {
                   )}
                   {busyAction === "instant-text"
                     ? "Generating..."
-                    : "Generate voice text"}
+                    : "Generate instant voice"}
                 </Button>
                 {!canInstantText ? (
                   <span className="text-xs text-muted-foreground">
@@ -1421,12 +1453,121 @@ export function CustomVoiceLab() {
             </section>
           ) : null}
 
+          {mode === "speech" ? (
+            <section className="space-y-4 rounded-lg border border-border bg-background/90 p-4 shadow-sm">
+              <div className="flex items-center gap-2">
+                <Mic2 className="size-4 text-theme-primary" aria-hidden="true" />
+                <h2 className="font-heading text-lg font-semibold">Use Voice</h2>
+              </div>
+
+              <div className="rounded-lg border border-border bg-card px-3 py-3 text-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-muted-foreground">Selected voice</p>
+                    <p className="font-semibold">
+                      {selectedVoice?.name ?? "Select or create a custom voice"}
+                    </p>
+                  </div>
+                  {selectedVoice ? (
+                    <span className="rounded border border-border bg-background px-2 py-1 text-xs text-muted-foreground">
+                      {labelSource(selectedVoice.source)}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <FieldLabel>Script</FieldLabel>
+                <textarea
+                  className="min-h-40 w-full resize-y rounded-md border border-border bg-card px-3 py-2 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+                  value={speechText}
+                  onChange={(event) => setSpeechText(event.target.value)}
+                  placeholder="Type what the selected custom voice should say."
+                />
+                <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                  <span>{speechText.trim().length === 0 ? "Add script text." : "Ready."}</span>
+                  <span>{speechText.trim().length.toLocaleString()}/40,000</span>
+                </div>
+              </div>
+
+              <CreditEstimateCard
+                costUsd={speechCostUsd}
+              />
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <FieldLabel>Output</FieldLabel>
+                  <select
+                    className="h-9 w-full rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+                    value={outputFormat}
+                    onChange={(event) => setOutputFormat(event.target.value)}
+                  >
+                    {OUTPUT_OPTIONS.map((format) => (
+                      <option key={format.id} value={format.id}>
+                        {format.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <FieldLabel>Seed</FieldLabel>
+                  <input
+                    className="h-9 w-full rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+                    value={speechSeed}
+                    onChange={(event) =>
+                      setSpeechSeed(event.target.value.replace(/\D/g, ""))
+                    }
+                    placeholder="Optional"
+                  />
+                </div>
+              </div>
+
+              <VoiceSettingsEditor settings={settings} onChange={setSettings} />
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Button
+                  type="button"
+                  className="bg-theme-gradient-button text-white shadow-[0_4px_16px_rgba(31,76,238,0.22)] hover:brightness-105"
+                  disabled={!canSpeech}
+                  onClick={generateSpeech}
+                >
+                  {busyAction === "speech" ? (
+                    <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Mic2 size={14} aria-hidden="true" />
+                  )}
+                  {busyAction === "speech" ? "Generating..." : "Generate speech"}
+                </Button>
+                {!canSpeech ? (
+                  <span className="text-xs text-muted-foreground">
+                    Select a saved voice and enter text.
+                  </span>
+                ) : null}
+              </div>
+
+              {audioResult ? (
+                <div className="space-y-2 rounded-lg border border-border bg-card p-3">
+                  <FieldLabel>{audioResult.label}</FieldLabel>
+                  <audio className="w-full" controls src={audioResult.url} />
+                  <a
+                    className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-border bg-background px-2.5 text-[0.8rem] font-medium transition hover:bg-muted"
+                    href={audioResult.url}
+                    download={audioResult.fileName}
+                  >
+                    <Download size={14} aria-hidden="true" />
+                    Download
+                  </a>
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+
           {mode === "changer" ? (
             <section className="space-y-4 rounded-lg border border-border bg-background/90 p-4 shadow-sm">
               <div className="flex items-center gap-2">
                 <Wand2 className="size-4 text-theme-primary" aria-hidden="true" />
                 <h2 className="font-heading text-lg font-semibold">
-                  Voice Changer
+                  Transform Audio
                 </h2>
               </div>
 
@@ -1450,8 +1591,18 @@ export function CustomVoiceLab() {
                 label="Source performance"
                 description="Upload performance audio"
                 files={voiceChangerFile}
-                onFiles={(files) => setVoiceChangerFile(files.slice(0, 1))}
-                onRemove={() => setVoiceChangerFile([])}
+                onFiles={(files) => {
+                  setVoiceChangerDurationSecs(null);
+                  setVoiceChangerFile(files.slice(0, 1));
+                }}
+                onRemove={() => {
+                  setVoiceChangerDurationSecs(null);
+                  setVoiceChangerFile([]);
+                }}
+              />
+
+              <CreditEstimateCard
+                costUsd={transformCostUsd}
               />
 
               <div className="grid gap-3 sm:grid-cols-3">
@@ -1503,7 +1654,7 @@ export function CustomVoiceLab() {
                   ) : (
                     <Wand2 size={14} aria-hidden="true" />
                   )}
-                  {busyAction === "changer" ? "Converting..." : "Convert performance"}
+                  {busyAction === "changer" ? "Transforming..." : "Transform audio"}
                 </Button>
                 {!canConvert ? (
                   <span className="text-xs text-muted-foreground">
@@ -1533,7 +1684,9 @@ export function CustomVoiceLab() {
             <section className="space-y-4 rounded-lg border border-border bg-background/90 p-4 shadow-sm">
               <div className="flex items-center gap-2">
                 <Sparkles className="size-4 text-theme-primary" aria-hidden="true" />
-                <h2 className="font-heading text-lg font-semibold">Voice Design</h2>
+                <h2 className="font-heading text-lg font-semibold">
+                  Create New Voice
+                </h2>
               </div>
 
               <div className="space-y-2">
@@ -1607,7 +1760,7 @@ export function CustomVoiceLab() {
                 ) : (
                   <Sparkles size={14} aria-hidden="true" />
                 )}
-                {busyAction === "design" ? "Generating..." : "Generate previews"}
+                {busyAction === "design" ? "Generating..." : "Create previews"}
               </Button>
 
               <PreviewGrid

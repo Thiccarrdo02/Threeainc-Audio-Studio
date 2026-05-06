@@ -362,7 +362,7 @@ function TopBar({
           </div>
         ) : (
           <div className="rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
-            ElevenLabs local lab
+            Custom voice workspace
           </div>
         )}
       </div>
@@ -1058,7 +1058,7 @@ function LocalHistoryPanel({
       <div>
         <h2 className="font-heading text-lg font-semibold">Local History</h2>
         <p className="text-xs text-muted-foreground">
-          Saved on this browser as provider URLs and metadata only.
+          Saved on this browser as remote audio URLs and metadata only.
         </p>
       </div>
 

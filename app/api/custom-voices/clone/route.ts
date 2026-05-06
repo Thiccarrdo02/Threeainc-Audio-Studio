@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import {
   addInstantCloneVoice,
+  getCustomVoiceSubscription,
   voiceToStoredProfile,
 } from "@/lib/elevenlabs";
 import { upsertCustomVoice } from "@/lib/local-custom-voices";
@@ -63,6 +64,15 @@ export async function POST(request: Request) {
       );
     }
 
+    const subscription = await getCustomVoiceSubscription();
+    if (!subscription.canUseInstantVoiceCloning) {
+      return errorResponse(
+        403,
+        "CUSTOM_VOICE_CLONE_NOT_ENABLED",
+        "Instant cloning is not enabled on this account yet. Use Instant Voice or Create Voice to make saved voices, or upgrade the voice account plan to enable cloning.",
+      );
+    }
+
     const created = await addInstantCloneVoice({
       name,
       description,
@@ -89,7 +99,7 @@ export async function POST(request: Request) {
   } catch (error) {
     return errorResponse(
       502,
-      "ELEVENLABS_CLONE_FAILED",
+      "CUSTOM_VOICE_CLONE_FAILED",
       error instanceof Error ? error.message : "Voice cloning failed.",
     );
   }

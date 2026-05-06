@@ -94,6 +94,8 @@ test("core MVP configuration remains intact", async () => {
   }
 
   assert.match(pricing, /FAL_COST_PER_1K_CHARACTERS_USD\s*=\s*0\.15/);
+  assert.match(pricing, /CUSTOM_VOICE_TEXT_COST_PER_1K_CHARACTERS_USD\s*=\s*0\.1/);
+  assert.match(pricing, /CUSTOM_VOICE_TRANSFORM_COST_PER_MINUTE_USD\s*=\s*0\.12/);
   assert.match(pricing, /THREEZINC_MARKUP_MULTIPLIER\s*=\s*1\.25/);
   assert.match(pricing, /THREEZINC_CREDITS_PER_USD\s*=\s*20/);
   assert.match(pricing, /MINIMUM_THREEZINC_CREDITS\s*=\s*0\.5/);
@@ -105,8 +107,10 @@ test("core MVP configuration remains intact", async () => {
 test("secret stays out of client/source files", async () => {
   const sourceFiles = [
     "app/api/tts/generate/route.ts",
+    "app/api/custom-voices/capabilities/route.ts",
     "app/api/custom-voices/clone/route.ts",
     "app/api/custom-voices/instant-text/route.ts",
+    "app/api/custom-voices/speech/route.ts",
     "app/api/custom-voices/voice-changer/route.ts",
     "app/api/custom-voices/design/route.ts",
     "app/api/custom-voices/remix/route.ts",
@@ -155,20 +159,24 @@ test("storage and provider boundaries are documented in code", async () => {
   assert.match(eleven, /process\.env\.ELEVENLABS_API_KEY/);
   assert.match(customStore, /\.local/);
   assert.match(customLab, /\/api\/custom-voices\/clone/);
+  assert.match(customLab, /\/api\/custom-voices\/speech/);
   assert.equal(customLab.includes("/api/custom-voices/generate"), false);
   assert.equal(customLab.includes("Custom Voice TTS"), false);
   assert.match(customLab, /VOICE_CONSENT_REQUIRED|I own this voice or have permission/);
-  assert.match(customLab, /Instant Text/);
-  assert.match(customLab, /Fal MiniMax/);
+  assert.match(customLab, /Instant Voice/);
+  assert.equal(customLab.includes("Fal MiniMax"), false);
   assert.match(customLab, /\/api\/custom-voices\/instant-text/);
   assert.match(customLab, /Upload reference voice/);
-  assert.match(customLab, /Generate voice text/);
-  assert.match(customLab, /Voice Changer/);
-  assert.match(customLab, /Voice Design/);
+  assert.match(customLab, /Generate instant voice/);
+  assert.match(customLab, /Use Voice/);
+  assert.match(customLab, /Transform Audio/);
+  assert.match(customLab, /Create Voice/);
+  assert.match(customLab, /Create New Voice/);
   assert.match(customLab, /Voice Remix/);
   assert.match(customLab, /Upload voice samples/);
-  assert.match(customLab, /Generate previews/);
+  assert.match(customLab, /Create previews/);
   assert.match(customLab, /Generate remix previews/);
+  assert.equal(customLab.includes("+ 25%"), false);
   assert.equal(customLab.includes("ELEVENLABS_API_KEY"), false);
   assert.match(await read("components/studio/tts-studio.tsx"), /Voice Cloning/);
 });

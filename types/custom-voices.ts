@@ -31,7 +31,7 @@ export interface VoicePreviewCandidate {
   generatedVoiceId: string;
   audioDataUrl?: string;
   audioUrl?: string;
-  provider?: "elevenlabs" | "fal";
+  provider?: "elevenlabs";
   mediaType: string;
   durationSecs?: number;
   text?: string;

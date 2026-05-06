@@ -1,9 +1,6 @@
 import { NextResponse } from "next/server";
 
-import {
-  createCustomVoiceFileName,
-  convertSpeechToSpeech,
-} from "@/lib/elevenlabs";
+import { createCustomVoiceFileName, createSpeech } from "@/lib/elevenlabs";
 import { getCustomVoiceByProviderId } from "@/lib/local-custom-voices";
 import type { ElevenLabsVoiceSettings } from "@/types/custom-voices";
 import type { TTSApiError } from "@/types/tts";
@@ -24,33 +21,34 @@ function errorResponse(status: number, code: string, message: string) {
 
 export async function POST(request: Request) {
   try {
-    const formData = await request.formData();
-    const voiceId = String(formData.get("voiceId") ?? "").trim();
-    const audioFile = formData.get("audio");
-    const settingsRaw = String(formData.get("settings") ?? "{}");
-    const seedRaw = String(formData.get("seed") ?? "");
+    const body = (await request.json()) as Record<string, unknown>;
+    const voiceId = String(body.voiceId ?? "").trim();
+    const text = String(body.text ?? "").trim();
+    const settings = (body.settings ?? {}) as Partial<ElevenLabsVoiceSettings>;
+    const seed =
+      typeof body.seed === "number" && Number.isFinite(body.seed)
+        ? body.seed
+        : undefined;
 
-    if (!voiceId || !(audioFile instanceof File) || audioFile.size === 0) {
+    if (!voiceId || text.length < 1 || text.length > 40000) {
       return errorResponse(
         400,
-        "VOICE_CHANGER_REQUIRED",
-        "Target voice and source audio are required.",
+        "CUSTOM_VOICE_SPEECH_REQUIRED",
+        "Select a saved voice and enter text to generate.",
       );
     }
 
     const localVoice = await getCustomVoiceByProviderId(voiceId);
-    const audio = await convertSpeechToSpeech({
+    const audio = await createSpeech({
       voiceId,
-      audio: audioFile,
-      outputFormat: String(formData.get("outputFormat") ?? "mp3_44100_128"),
-      removeBackgroundNoise:
-        String(formData.get("removeBackgroundNoise") ?? "") === "true",
-      seed: seedRaw ? Number(seedRaw) : undefined,
-      settings: JSON.parse(settingsRaw) as Partial<ElevenLabsVoiceSettings>,
+      text,
+      outputFormat: String(body.outputFormat ?? "mp3_44100_128"),
+      seed,
+      settings,
     });
     const fileName = createCustomVoiceFileName(
       localVoice?.name ?? "custom-voice",
-      "transform",
+      "speech",
     );
 
     return new NextResponse(audio.bytes, {
@@ -64,8 +62,8 @@ export async function POST(request: Request) {
   } catch (error) {
     return errorResponse(
       502,
-      "CUSTOM_VOICE_TRANSFORM_FAILED",
-      error instanceof Error ? error.message : "Voice transform failed.",
+      "CUSTOM_VOICE_SPEECH_FAILED",
+      error instanceof Error ? error.message : "Custom voice generation failed.",
     );
   }
 }

@@ -15,10 +15,21 @@ export const ELEVENLABS_OUTPUT_FORMATS = [
   { id: "mp3_22050_32", label: "MP3 22.05k 32kbps" },
 ] as const;
 
+export interface CustomVoiceSubscription {
+  tier?: string;
+  status?: string;
+  characterCount?: number;
+  characterLimit?: number;
+  voiceSlotsUsed?: number;
+  voiceLimit?: number;
+  canUseInstantVoiceCloning: boolean;
+  canUseProfessionalVoiceCloning: boolean;
+}
+
 function getApiKey() {
   const key = process.env.ELEVENLABS_API_KEY;
   if (!key) {
-    throw new Error("ELEVENLABS_API_KEY is not configured.");
+    throw new Error("Custom voice key is not configured.");
   }
   return key;
 }
@@ -31,9 +42,9 @@ export function sanitizeFileName(value: string) {
     .replace(/^-+|-+$/g, "");
 }
 
-export function createElevenLabsFileName(voiceName: string, suffix = "audio") {
+export function createCustomVoiceFileName(voiceName: string, suffix = "audio") {
   return [
-    "threezinc-elevenlabs",
+    "threezinc-voice",
     sanitizeFileName(voiceName) || "custom-voice",
     sanitizeFileName(randomUUID()).slice(0, 10),
     suffix,
@@ -65,7 +76,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
         ? parsed.detail.message
         : typeof parsed?.message === "string"
           ? parsed.message
-          : `ElevenLabs request failed with ${response.status}.`;
+          : `Voice service request failed with ${response.status}.`;
     throw new Error(message);
   }
 
@@ -79,6 +90,29 @@ async function elevenLabsFetch(path: string, init: RequestInit = {}) {
     ...init,
     headers,
   });
+}
+
+export async function getCustomVoiceSubscription(): Promise<CustomVoiceSubscription> {
+  const response = await elevenLabsFetch("/v1/user/subscription");
+  const data = await parseJsonResponse<Record<string, unknown>>(response);
+
+  return {
+    tier: typeof data.tier === "string" ? data.tier : undefined,
+    status: typeof data.status === "string" ? data.status : undefined,
+    characterCount:
+      typeof data.character_count === "number" ? data.character_count : undefined,
+    characterLimit:
+      typeof data.character_limit === "number" ? data.character_limit : undefined,
+    voiceSlotsUsed:
+      typeof data.voice_slots_used === "number"
+        ? data.voice_slots_used
+        : undefined,
+    voiceLimit:
+      typeof data.voice_limit === "number" ? data.voice_limit : undefined,
+    canUseInstantVoiceCloning: data.can_use_instant_voice_cloning === true,
+    canUseProfessionalVoiceCloning:
+      data.can_use_professional_voice_cloning === true,
+  };
 }
 
 export async function addInstantCloneVoice({
@@ -163,6 +197,45 @@ export async function convertSpeechToSpeech({
   };
 }
 
+export async function createSpeech({
+  voiceId,
+  text,
+  outputFormat,
+  seed,
+  settings,
+}: {
+  voiceId: string;
+  text: string;
+  outputFormat: string;
+  seed?: number;
+  settings?: Partial<ElevenLabsVoiceSettings>;
+}) {
+  const params = new URLSearchParams({ output_format: outputFormat });
+  const response = await elevenLabsFetch(
+    `/v1/text-to-speech/${encodeURIComponent(voiceId)}?${params.toString()}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text,
+        model_id: "eleven_multilingual_v2",
+        voice_settings: toElevenLabsSettings(settings),
+        ...(typeof seed === "number" ? { seed } : {}),
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    await parseJsonResponse(response);
+  }
+
+  return {
+    bytes: Buffer.from(await response.arrayBuffer()),
+    contentType: response.headers.get("content-type") ?? "audio/mpeg",
+    requestId: response.headers.get("request-id") ?? undefined,
+  };
+}
+
 function mapPreviewCandidate(
   preview: {
     generated_voice_id?: string;
@@ -208,28 +281,27 @@ export async function designVoicePreviews({
   outputFormat?: string;
 }) {
   const params = new URLSearchParams({ output_format: outputFormat });
+  const isReferenceDesign = modelId === "eleven_ttv_v3";
+  const payload = {
+    voice_description: description,
+    model_id: modelId,
+    ...(text ? { text } : { auto_generate_text: true }),
+    ...(referenceAudioBase64 ? { reference_audio_base64: referenceAudioBase64 } : {}),
+    ...(typeof promptStrength === "number"
+      ? { prompt_strength: promptStrength }
+      : {}),
+    ...(typeof loudness === "number" ? { loudness } : {}),
+    ...(!isReferenceDesign && typeof quality === "number" ? { quality } : {}),
+    ...(typeof guidanceScale === "number" ? { guidance_scale: guidanceScale } : {}),
+    ...(typeof seed === "number" ? { seed } : {}),
+  };
+
   const response = await elevenLabsFetch(
     `/v1/text-to-voice/design?${params.toString()}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        voice_description: description,
-        model_id: modelId,
-        ...(text ? { text } : { auto_generate_text: true }),
-        ...(referenceAudioBase64
-          ? { reference_audio_base64: referenceAudioBase64 }
-          : {}),
-        ...(typeof promptStrength === "number"
-          ? { prompt_strength: promptStrength }
-          : {}),
-        ...(typeof loudness === "number" ? { loudness } : {}),
-        ...(typeof quality === "number" ? { quality } : {}),
-        ...(typeof guidanceScale === "number"
-          ? { guidance_scale: guidanceScale }
-          : {}),
-        ...(typeof seed === "number" ? { seed } : {}),
-      }),
+      body: JSON.stringify(payload),
     },
   );
 
@@ -252,7 +324,6 @@ export async function instantTextVoicePreviews({
   referenceAudio,
   promptStrength,
   loudness,
-  quality,
   guidanceScale,
   seed,
   outputFormat,
@@ -262,7 +333,6 @@ export async function instantTextVoicePreviews({
   referenceAudio: File;
   promptStrength?: number;
   loudness?: number;
-  quality?: number;
   guidanceScale?: number;
   seed?: number;
   outputFormat?: string;
@@ -277,7 +347,6 @@ export async function instantTextVoicePreviews({
     referenceAudioBase64,
     promptStrength,
     loudness,
-    quality,
     guidanceScale,
     seed,
     outputFormat,

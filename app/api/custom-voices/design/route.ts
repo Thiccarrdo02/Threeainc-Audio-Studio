@@ -32,7 +32,7 @@ export async function POST(request: Request) {
       return errorResponse(
         400,
         "VOICE_DESCRIPTION_TOO_SHORT",
-        "Voice design description must be at least 20 characters.",
+        "Create voice description must be at least 20 characters.",
       );
     }
 
@@ -47,8 +47,8 @@ export async function POST(request: Request) {
   } catch (error) {
     return errorResponse(
       502,
-      "ELEVENLABS_DESIGN_FAILED",
-      error instanceof Error ? error.message : "Voice design failed.",
+      "CUSTOM_VOICE_CREATE_FAILED",
+      error instanceof Error ? error.message : "Create voice failed.",
     );
   }
 }
