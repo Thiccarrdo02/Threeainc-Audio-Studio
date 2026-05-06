@@ -39,6 +39,42 @@ function configureFal() {
   fal.config({ credentials: getFalKey() });
 }
 
+export function getFalErrorStatus(error: unknown) {
+  const status = (error as { status?: unknown })?.status;
+  return typeof status === "number" && status >= 400 && status < 500
+    ? 400
+    : 502;
+}
+
+export function getFalErrorMessage(error: unknown, fallback: string) {
+  const body = (error as { body?: unknown })?.body;
+  if (typeof body === "object" && body !== null) {
+    const detail = (body as { detail?: unknown }).detail;
+    if (Array.isArray(detail)) {
+      const firstMessage = detail
+        .map((item) =>
+          typeof item === "object" && item !== null
+            ? (item as { msg?: unknown }).msg
+            : undefined,
+        )
+        .find((message): message is string => typeof message === "string");
+
+      if (firstMessage) {
+        if (/audio duration is too short/i.test(firstMessage)) {
+          return "Reference voice is too short. Upload at least 10 seconds of clear speech.";
+        }
+        return firstMessage;
+      }
+    }
+  }
+
+  if (error instanceof Error && error.message !== "Unprocessable Entity") {
+    return error.message;
+  }
+
+  return fallback;
+}
+
 function isFalCloneOutput(value: unknown): value is {
   custom_voice_id: string;
   audio?: FalAudioFile;

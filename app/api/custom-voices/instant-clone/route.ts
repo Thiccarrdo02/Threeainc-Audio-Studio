@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 
 import {
   createFalInstantClone,
+  getFalErrorMessage,
+  getFalErrorStatus,
   toFalMiniMaxCloneModel,
 } from "@/lib/fal-custom-voices";
 import { upsertCustomVoice } from "@/lib/local-custom-voices";
@@ -74,9 +76,9 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     return errorResponse(
-      502,
+      getFalErrorStatus(error),
       "INSTANT_CLONE_FAILED",
-      error instanceof Error ? error.message : "Instant clone failed.",
+      getFalErrorMessage(error, "Instant clone failed."),
     );
   }
 }

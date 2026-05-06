@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 
 import { createCustomVoiceFileName, createSpeech } from "@/lib/elevenlabs";
-import { createFalSpeech } from "@/lib/fal-custom-voices";
+import {
+  createFalSpeech,
+  getFalErrorMessage,
+  getFalErrorStatus,
+} from "@/lib/fal-custom-voices";
 import { getCustomVoiceByProviderId } from "@/lib/local-custom-voices";
 import type { ElevenLabsVoiceSettings } from "@/types/custom-voices";
 import type { TTSApiError } from "@/types/tts";
@@ -75,10 +79,11 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
+    const status = getFalErrorStatus(error);
     return errorResponse(
-      502,
+      status,
       "CUSTOM_VOICE_SPEECH_FAILED",
-      error instanceof Error ? error.message : "Custom voice generation failed.",
+      getFalErrorMessage(error, "Custom voice generation failed."),
     );
   }
 }

@@ -143,6 +143,17 @@ function formatBytes(bytes: number) {
   return `${value.toFixed(value >= 10 || exponent === 0 ? 0 : 1)} ${units[exponent]}`;
 }
 
+function formatSeconds(seconds: number) {
+  if (seconds < 60) {
+    return `${seconds.toFixed(1)}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = Math.floor(seconds % 60)
+    .toString()
+    .padStart(2, "0");
+  return `${minutes}:${remainingSeconds}`;
+}
+
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
     <label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
@@ -691,6 +702,8 @@ export function CustomVoiceLab() {
   const [labelUseCase, setLabelUseCase] = useState("creator");
 
   const [instantReferenceFiles, setInstantReferenceFiles] = useState<File[]>([]);
+  const [instantReferenceDurationSecs, setInstantReferenceDurationSecs] =
+    useState<number | null>(null);
   const [instantVoiceName, setInstantVoiceName] = useState("Instant clone");
   const [instantText, setInstantText] = useState("");
   const [instantDescription, setInstantDescription] = useState(
@@ -747,6 +760,7 @@ export function CustomVoiceLab() {
   const canInstantText =
     !busy &&
     instantReferenceFiles.length === 1 &&
+    (instantReferenceDurationSecs ?? 0) >= 10 &&
     instantVoiceName.trim().length > 0 &&
     instantText.trim().length >= 1 &&
     instantText.trim().length <= 5000;
@@ -815,6 +829,29 @@ export function CustomVoiceLab() {
       }
     };
   }, [audioResult]);
+
+  useEffect(() => {
+    const file = instantReferenceFiles[0];
+    if (!file) {
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    const audio = new Audio(objectUrl);
+    audio.preload = "metadata";
+    audio.onloadedmetadata = () => {
+      setInstantReferenceDurationSecs(
+        Number.isFinite(audio.duration) ? audio.duration : null,
+      );
+    };
+    audio.onerror = () => setInstantReferenceDurationSecs(null);
+
+    return () => {
+      URL.revokeObjectURL(objectUrl);
+      audio.onloadedmetadata = null;
+      audio.onerror = null;
+    };
+  }, [instantReferenceFiles]);
 
   useEffect(() => {
     const file = voiceChangerFile[0];
@@ -1478,9 +1515,30 @@ export function CustomVoiceLab() {
                 description="Upload reference voice"
                 hint="MP3, WAV, M4A, AAC, or OGG. Use 10+ seconds of clean speech."
                 files={instantReferenceFiles}
-                onFiles={(files) => setInstantReferenceFiles(files.slice(0, 1))}
-                onRemove={() => setInstantReferenceFiles([])}
+                onFiles={(files) => {
+                  setInstantReferenceDurationSecs(null);
+                  setInstantReferenceFiles(files.slice(0, 1));
+                }}
+                onRemove={() => {
+                  setInstantReferenceDurationSecs(null);
+                  setInstantReferenceFiles([]);
+                }}
               />
+              {instantReferenceFiles.length > 0 ? (
+                <div
+                  className={`rounded-lg border px-3 py-2 text-sm ${
+                    (instantReferenceDurationSecs ?? 0) >= 10
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                      : "border-amber-200 bg-amber-50 text-amber-900"
+                  }`}
+                >
+                  {instantReferenceDurationSecs === null
+                    ? "Checking reference length..."
+                    : instantReferenceDurationSecs >= 10
+                      ? `Reference length ${formatSeconds(instantReferenceDurationSecs)}. Ready for cloning.`
+                      : `Reference length ${formatSeconds(instantReferenceDurationSecs)}. Upload at least 10 seconds of clear speech.`}
+                </div>
+              ) : null}
 
               <div className="space-y-1.5">
                 <FieldLabel>Target text</FieldLabel>
@@ -1555,7 +1613,7 @@ export function CustomVoiceLab() {
                 </Button>
                 {!canInstantText ? (
                   <span className="text-xs text-muted-foreground">
-                    Add a voice name, upload one reference file, and enter target text.
+                    Add a voice name, upload 10+ seconds of reference audio, and enter target text.
                   </span>
                 ) : null}
               </div>
