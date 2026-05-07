@@ -9,6 +9,7 @@ import {
   Library,
   Loader2,
   Mic2,
+  Pencil,
   RefreshCcw,
   ShieldCheck,
   SlidersHorizontal,
@@ -42,8 +43,7 @@ type LabMode =
   | "clone"
   | "changer"
   | "design"
-  | "remix"
-  | "library";
+  | "remix";
 type BusyAction =
   | "refresh"
   | "clone"
@@ -52,8 +52,6 @@ type BusyAction =
   | "changer"
   | "design"
   | "remix"
-  | "library"
-  | "import"
   | "save"
   | "delete";
 
@@ -68,19 +66,6 @@ interface VoiceCapabilities {
   canUseProfessionalVoiceCloning: boolean;
   voiceSlotsUsed?: number;
   voiceLimit?: number;
-}
-
-interface SharedVoiceCard {
-  publicOwnerId: string;
-  voiceId: string;
-  name: string;
-  description: string;
-  accent?: string;
-  gender?: string;
-  age?: string;
-  useCase?: string;
-  language?: string;
-  previewUrl?: string;
 }
 
 const OUTPUT_OPTIONS = [
@@ -346,18 +331,6 @@ async function fetchVoiceCapabilities() {
   return (await response.json()) as VoiceCapabilities;
 }
 
-async function fetchSharedVoices(search: string) {
-  const params = new URLSearchParams();
-  if (search.trim()) {
-    params.set("search", search.trim());
-  }
-  const response = await fetch(`/api/custom-voices/library?${params.toString()}`);
-  if (!response.ok) {
-    throw new Error(await readError(response));
-  }
-  return (await response.json()) as { voices: SharedVoiceCard[] };
-}
-
 async function audioResultFromResponse(response: Response, label: string) {
   if (!response.ok) {
     throw new Error(await readError(response));
@@ -411,6 +384,7 @@ function VoiceLibraryPanel({
   onSelect,
   onRefresh,
   onDelete,
+  onRename,
 }: {
   voices: CustomVoiceProfile[];
   selectedVoiceId: string;
@@ -418,6 +392,7 @@ function VoiceLibraryPanel({
   onSelect: (voiceId: string) => void;
   onRefresh: () => void;
   onDelete: (voice: CustomVoiceProfile) => void;
+  onRename: (voice: CustomVoiceProfile) => void;
 }) {
   return (
     <aside className="space-y-4 rounded-lg border border-border bg-background/90 p-4 shadow-sm">
@@ -494,12 +469,28 @@ function VoiceLibraryPanel({
                     type="button"
                     variant="ghost"
                     size="icon-sm"
+                    onClick={() => onRename(voice)}
+                    aria-label={`Rename ${voice.name}`}
+                  >
+                    <Pencil size={14} aria-hidden="true" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
                     onClick={() => onDelete(voice)}
                     aria-label={`Delete ${voice.name}`}
                   >
                     <Trash2 size={14} aria-hidden="true" />
                   </Button>
                 </div>
+                {voice.previewUrl ? (
+                  <audio
+                    className="mt-2 w-full"
+                    controls
+                    src={voice.previewUrl}
+                  />
+                ) : null}
               </div>
             );
           })}
@@ -682,7 +673,7 @@ function PreviewGrid({
 }
 
 export function CustomVoiceLab() {
-  const [mode, setMode] = useState<LabMode>("instant-text");
+  const [mode, setMode] = useState<LabMode>("design");
   const [voices, setVoices] = useState<CustomVoiceProfile[]>([]);
   const [selectedVoiceId, setSelectedVoiceId] = useState("");
   const [status, setStatus] = useState("");
@@ -735,8 +726,6 @@ export function CustomVoiceLab() {
   const [designGuidance, setDesignGuidance] = useState(5);
   const [designSeed, setDesignSeed] = useState("");
   const [remixDescription, setRemixDescription] = useState("");
-  const [librarySearch, setLibrarySearch] = useState("");
-  const [sharedVoices, setSharedVoices] = useState<SharedVoiceCard[]>([]);
   const [promptStrength, setPromptStrength] = useState(0.5);
   const [previews, setPreviews] = useState<VoicePreviewCandidate[]>([]);
   const [previewSource, setPreviewSource] =
@@ -772,7 +761,6 @@ export function CustomVoiceLab() {
   const canConvert =
     !busy &&
     Boolean(selectedVoiceId) &&
-    selectedVoice?.provider === "elevenlabs" &&
     voiceChangerFile.length === 1;
   const canDesign = !busy && designDescription.trim().length >= 20;
   const canRemix =
@@ -875,21 +863,6 @@ export function CustomVoiceLab() {
       audio.onerror = null;
     };
   }, [voiceChangerFile]);
-
-  useEffect(() => {
-    if (mode !== "library" || sharedVoices.length > 0 || busyAction) {
-      return;
-    }
-
-    void Promise.resolve()
-      .then(async () => {
-        const result = await fetchSharedVoices(librarySearch);
-        setSharedVoices(result.voices);
-      })
-      .catch((caught) => {
-        setError(caught instanceof Error ? caught.message : "Could not load voices.");
-      });
-  }, [busyAction, librarySearch, mode, sharedVoices.length]);
 
   const runAction = useCallback(
     async (actionName: BusyAction, action: () => Promise<void>) => {
@@ -1163,45 +1136,6 @@ export function CustomVoiceLab() {
     [previewSource, refreshVoices, runAction, saveDescription, saveName],
   );
 
-  const searchLibraryVoices = useCallback(() => {
-    void runAction("library", async () => {
-      const result = await fetchSharedVoices(librarySearch);
-      setSharedVoices(result.voices);
-      setStatus(
-        result.voices.length > 0
-          ? `Found ${result.voices.length} voices.`
-          : "No matching voices found.",
-      );
-    });
-  }, [librarySearch, runAction]);
-
-  const importLibraryVoice = useCallback(
-    (voice: SharedVoiceCard) => {
-      void runAction("import", async () => {
-        const response = await fetch("/api/custom-voices/library/import", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            publicOwnerId: voice.publicOwnerId,
-            voiceId: voice.voiceId,
-            name: voice.name,
-            description: voice.description,
-            previewUrl: voice.previewUrl,
-          }),
-        });
-        if (!response.ok) {
-          throw new Error(await readError(response));
-        }
-        const data = (await response.json()) as { voice: CustomVoiceProfile };
-        setStatus(`Imported ${data.voice.name}.`);
-        await refreshVoices();
-        setSelectedVoiceId(data.voice.voiceId);
-        setMode("speech");
-      });
-    },
-    [refreshVoices, runAction],
-  );
-
   const deleteVoice = useCallback(
     (voice: CustomVoiceProfile) => {
       if (!window.confirm(`Delete ${voice.name} from this voice library?`)) {
@@ -1219,6 +1153,32 @@ export function CustomVoiceLab() {
         setStatus(`Deleted ${voice.name}.`);
         const next = await refreshVoices();
         setSelectedVoiceId(next[0]?.voiceId ?? "");
+      });
+    },
+    [refreshVoices, runAction],
+  );
+
+  const renameVoice = useCallback(
+    (voice: CustomVoiceProfile) => {
+      const nextName = window.prompt("Rename voice", voice.name)?.trim();
+      if (!nextName || nextName === voice.name) {
+        return;
+      }
+
+      void runAction("save", async () => {
+        const response = await fetch(
+          `/api/custom-voices/${encodeURIComponent(voice.voiceId)}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: nextName }),
+          },
+        );
+        if (!response.ok) {
+          throw new Error(await readError(response));
+        }
+        setStatus(`Renamed ${voice.name} to ${nextName}.`);
+        await refreshVoices();
       });
     },
     [refreshVoices, runAction],
@@ -1246,7 +1206,7 @@ export function CustomVoiceLab() {
           <div className="grid gap-2 text-xs sm:grid-cols-3">
             <div className="rounded-lg border border-border bg-card px-3 py-2">
               <p className="text-muted-foreground">Flow</p>
-              <p className="font-semibold">Create first</p>
+              <p className="font-semibold">Design first</p>
             </div>
             <div className="rounded-lg border border-border bg-card px-3 py-2">
               <p className="text-muted-foreground">Keys</p>
@@ -1276,17 +1236,17 @@ export function CustomVoiceLab() {
             });
           }}
           onDelete={deleteVoice}
+          onRename={renameVoice}
         />
 
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-card p-1 text-sm sm:grid-cols-6">
+          <div className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-card p-1 text-sm sm:grid-cols-5">
             {[
-              ["instant-text", "Instant Clone"],
-              ["speech", "Use Voice"],
-              ["changer", "Transform"],
               ["design", "Create Voice"],
+              ["instant-text", "Clone Voice"],
+              ["speech", "Use Voice"],
+              ["changer", "Transform Voice"],
               ["remix", "Remix"],
-              ["library", "Browse Voices"],
             ].map(([id, label]) => (
               <button
                 key={id}
@@ -1658,13 +1618,6 @@ export function CustomVoiceLab() {
                 </div>
               </div>
 
-              {selectedVoice?.provider === "fal" ? (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
-                  This uploaded clone can speak typed text in Use Voice. For audio
-                  transform, choose an imported or created voice from the library.
-                </div>
-              ) : null}
-
               <div className="space-y-1.5">
                 <FieldLabel>Script</FieldLabel>
                 <textarea
@@ -1775,13 +1728,6 @@ export function CustomVoiceLab() {
                   ) : null}
                 </div>
               </div>
-
-              {selectedVoice?.provider === "fal" ? (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
-                  Uploaded instant clones are ready for typed speech. For audio
-                  transform, import or create a library voice first.
-                </div>
-              ) : null}
 
               <AudioUploadField
                 label="Source performance"
@@ -2049,97 +1995,6 @@ export function CustomVoiceLab() {
             </section>
           ) : null}
 
-          {mode === "library" ? (
-            <section className="space-y-4 rounded-lg border border-border bg-background/90 p-4 shadow-sm">
-              <div className="flex items-center gap-2">
-                <Library className="size-4 text-theme-primary" aria-hidden="true" />
-                <h2 className="font-heading text-lg font-semibold">
-                  Browse Voices
-                </h2>
-              </div>
-
-              <div className="rounded-lg border border-border bg-card px-3 py-3 text-sm text-muted-foreground">
-                Search public voices, preview them, and import the ones you want
-                into your local library.
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-                <input
-                  className="h-10 w-full rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
-                  value={librarySearch}
-                  onChange={(event) => setLibrarySearch(event.target.value)}
-                  placeholder="Search Hindi, Indian English, cinematic, creator..."
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={searchLibraryVoices}
-                  disabled={busyAction === "library"}
-                >
-                  {busyAction === "library" ? (
-                    <Loader2 size={14} className="animate-spin" aria-hidden="true" />
-                  ) : (
-                    <Library size={14} aria-hidden="true" />
-                  )}
-                  Search
-                </Button>
-              </div>
-
-              {sharedVoices.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-border px-3 py-5 text-sm text-muted-foreground">
-                  Search to load voice library options.
-                </div>
-              ) : (
-                <div className="grid gap-3 xl:grid-cols-2">
-                  {sharedVoices.map((voice) => (
-                    <div
-                      key={`${voice.publicOwnerId}-${voice.voiceId}`}
-                      className="space-y-2 rounded-lg border border-border bg-card p-3"
-                    >
-                      <div className="space-y-1">
-                        <p className="font-semibold">{voice.name}</p>
-                        <p className="line-clamp-2 text-xs text-muted-foreground">
-                          {voice.description || "Public voice library voice."}
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap gap-1.5 text-[0.68rem] text-muted-foreground">
-                        {[voice.language, voice.accent, voice.gender, voice.useCase]
-                          .filter(Boolean)
-                          .map((tag) => (
-                            <span
-                              key={tag}
-                              className="rounded border border-border bg-background px-1.5 py-0.5"
-                            >
-                              {tag}
-                            </span>
-                          ))}
-                      </div>
-                      {voice.previewUrl ? (
-                        <audio className="w-full" controls src={voice.previewUrl} />
-                      ) : null}
-                      <Button
-                        type="button"
-                        size="sm"
-                        disabled={busyAction === "import"}
-                        onClick={() => importLibraryVoice(voice)}
-                      >
-                        {busyAction === "import" ? (
-                          <Loader2
-                            size={14}
-                            className="animate-spin"
-                            aria-hidden="true"
-                          />
-                        ) : (
-                          <BadgeCheck size={14} aria-hidden="true" />
-                        )}
-                        Add to library
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          ) : null}
         </div>
       </div>
     </section>

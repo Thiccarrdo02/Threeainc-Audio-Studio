@@ -2,17 +2,22 @@
 
 import {
   AlertCircle,
+  BadgeCheck,
   Check,
   Clock3,
   Download,
+  Library,
+  Loader2,
   Mic2,
   Pause,
+  Pencil,
   Play,
   RotateCcw,
   Save,
   Search,
   SlidersHorizontal,
   Sparkles,
+  Trash2,
   UserRoundCheck,
   Volume2,
   Wand2,
@@ -35,8 +40,14 @@ import { Button } from "@/components/ui/button";
 import { useAudioManager } from "@/hooks/use-audio-manager";
 import { useTTSGeneration } from "@/hooks/use-tts-generation";
 import { useVoicePreview, type PreviewLanguage } from "@/hooks/use-voice-preview";
-import { estimatePromptCredits, formatCredits } from "@/lib/cost";
+import {
+  estimateCreditsFromCostUsd,
+  estimateCustomVoiceTextCostUsd,
+  estimatePromptCredits,
+  formatCredits,
+} from "@/lib/cost";
 import { clientStore, makeLocalId } from "@/lib/client-store";
+import type { CustomVoiceProfile } from "@/types/custom-voices";
 import type {
   LanguageOption,
   LocalGeneration,
@@ -53,6 +64,7 @@ const defaultStudioState: StudioState = {
   prompt: "",
   styleInstructions: "",
   voiceId: "Kore",
+  provider: "gemini",
   languageCode: "auto",
   outputFormat: "mp3",
   temperature: 1,
@@ -80,6 +92,49 @@ const PREVIEW_LANGUAGE_OPTIONS = [
   { value: "english", label: "English previews" },
   { value: "hindi", label: "Hindi previews" },
 ] as const;
+
+interface SharedVoiceCard {
+  publicOwnerId: string;
+  voiceId: string;
+  name: string;
+  description: string;
+  accent?: string;
+  gender?: string;
+  age?: string;
+  useCase?: string;
+  language?: string;
+  previewUrl?: string;
+}
+
+async function readRouteError(response: Response) {
+  try {
+    const data = await response.json();
+    return data?.error?.message ?? "Request failed.";
+  } catch {
+    return "Request failed.";
+  }
+}
+
+async function fetchCustomVoiceLibrary() {
+  const response = await fetch("/api/custom-voices");
+  if (!response.ok) {
+    throw new Error(await readRouteError(response));
+  }
+  const data = (await response.json()) as { voices: CustomVoiceProfile[] };
+  return data.voices;
+}
+
+async function fetchSharedVoiceLibrary(search: string) {
+  const params = new URLSearchParams();
+  if (search.trim()) {
+    params.set("search", search.trim());
+  }
+  const response = await fetch(`/api/custom-voices/library?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error(await readRouteError(response));
+  }
+  return (await response.json()) as { voices: SharedVoiceCard[] };
+}
 
 function clampAccentStrength(value: number) {
   if (!Number.isFinite(value)) {
@@ -163,6 +218,10 @@ function formatTime(seconds: number) {
 
 function getVoiceName(voiceId: string) {
   return MVP_VOICES.find((voice) => voice.id === voiceId)?.displayName ?? voiceId;
+}
+
+function isMvpSelected(voiceId: string) {
+  return MVP_VOICES.some((voice) => voice.id === voiceId);
 }
 
 function speakerButtonLabel(speaker: Speaker, index: number) {
@@ -315,7 +374,7 @@ function TopBar({
             type="button"
             onClick={() => onWorkspaceChange("tts")}
           >
-            TTS Studio
+            TTS
           </button>
           <button
             className={`flex-1 rounded px-3 py-1.5 text-xs font-medium sm:flex-none ${
@@ -326,7 +385,7 @@ function TopBar({
             type="button"
             onClick={() => onWorkspaceChange("voice-cloning")}
           >
-            Voice Cloning
+            Design Voice
           </button>
         </div>
 
@@ -881,20 +940,196 @@ function VoiceCard({
   );
 }
 
+function customSourceLabel(source: CustomVoiceProfile["source"]) {
+  if (source === "instant-text" || source === "instant-clone") {
+    return "Cloned";
+  }
+  if (source === "voice-remix") {
+    return "Remix";
+  }
+  if (source === "voice-library") {
+    return "Library";
+  }
+  return "Designed";
+}
+
+function CustomVoiceCard({
+  voice,
+  selected,
+  onSelect,
+  onRename,
+  onDelete,
+}: {
+  voice: CustomVoiceProfile;
+  selected: boolean;
+  onSelect: () => void;
+  onRename: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <article
+      className={`rounded-lg border bg-card p-3 transition ${
+        selected
+          ? "border-theme-primary shadow-[0_0_0_3px_rgba(51,83,254,0.08)]"
+          : "border-border"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <button type="button" className="min-w-0 flex-1 text-left" onClick={onSelect}>
+          <div className="flex items-center gap-2">
+            <p className="truncate font-heading text-sm font-semibold">
+              {voice.name}
+            </p>
+            {selected ? (
+              <span className="flex size-5 items-center justify-center rounded-full bg-theme-primary text-white">
+                <Check size={12} aria-hidden="true" />
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+            {voice.description || "Saved custom voice."}
+          </p>
+        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="ghost"
+            onClick={onRename}
+            aria-label={`Rename ${voice.name}`}
+          >
+            <Pencil size={14} aria-hidden="true" />
+          </Button>
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="ghost"
+            onClick={onDelete}
+            aria-label={`Delete ${voice.name}`}
+          >
+            <Trash2 size={14} aria-hidden="true" />
+          </Button>
+        </div>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1">
+        <span className="rounded border border-border bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground">
+          {customSourceLabel(voice.source)}
+        </span>
+        {voice.labels?.accent ? (
+          <span className="rounded border border-border bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground">
+            {voice.labels.accent}
+          </span>
+        ) : null}
+      </div>
+      {voice.previewUrl ? (
+        <audio className="mt-2 w-full" controls src={voice.previewUrl} />
+      ) : null}
+      <Button
+        type="button"
+        size="sm"
+        className="mt-2 w-full bg-theme-primary text-white hover:bg-theme-primary-hover"
+        onClick={onSelect}
+      >
+        {selected ? "Selected" : "Use voice"}
+      </Button>
+    </article>
+  );
+}
+
+function PublicVoiceCard({
+  voice,
+  importing,
+  onImport,
+}: {
+  voice: SharedVoiceCard;
+  importing: boolean;
+  onImport: () => void;
+}) {
+  const tags = [voice.language, voice.accent, voice.gender, voice.useCase].filter(
+    Boolean,
+  );
+
+  return (
+    <article className="rounded-lg border border-border bg-card p-3">
+      <div className="space-y-1">
+        <p className="font-heading text-sm font-semibold">{voice.name}</p>
+        <p className="line-clamp-2 text-xs text-muted-foreground">
+          {voice.description || "Public voice library voice."}
+        </p>
+      </div>
+      {tags.length > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {tags.map((tag) => (
+            <span
+              key={tag}
+              className="rounded border border-border bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground"
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {voice.previewUrl ? (
+        <audio className="mt-2 w-full" controls src={voice.previewUrl} />
+      ) : null}
+      <Button
+        type="button"
+        size="sm"
+        className="mt-2 bg-theme-primary text-white hover:bg-theme-primary-hover"
+        disabled={importing}
+        onClick={onImport}
+      >
+        {importing ? (
+          <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+        ) : (
+          <BadgeCheck size={14} aria-hidden="true" />
+        )}
+        Add to library
+      </Button>
+    </article>
+  );
+}
+
 function VoiceCatalog({
   mode,
   selectedVoiceId,
+  selectedProvider,
   speakers,
   preview,
+  customVoices,
+  sharedVoices,
+  sharedSearch,
+  libraryLoading,
+  libraryStatus,
+  libraryError,
   onSelect,
+  onSelectCustom,
   onAssignSpeaker,
+  onSharedSearchChange,
+  onSearchSharedVoices,
+  onImportSharedVoice,
+  onRenameCustomVoice,
+  onDeleteCustomVoice,
 }: {
   mode: StudioState["mode"];
   selectedVoiceId: string;
+  selectedProvider: StudioState["provider"];
   speakers: Speaker[];
   preview: ReturnType<typeof useVoicePreview>;
+  customVoices: CustomVoiceProfile[];
+  sharedVoices: SharedVoiceCard[];
+  sharedSearch: string;
+  libraryLoading: boolean;
+  libraryStatus?: string;
+  libraryError?: string;
   onSelect: (voiceId: string) => void;
+  onSelectCustom: (voiceId: string) => void;
   onAssignSpeaker: (speakerIndex: number, voiceId: string) => void;
+  onSharedSearchChange: (value: string) => void;
+  onSearchSharedVoices: () => void;
+  onImportSharedVoice: (voice: SharedVoiceCard) => void;
+  onRenameCustomVoice: (voice: CustomVoiceProfile) => void;
+  onDeleteCustomVoice: (voice: CustomVoiceProfile) => void;
 }) {
   const [query, setQuery] = useState("");
   const [genderFilter, setGenderFilter] = useState<"all" | VoiceGender>("all");
@@ -930,114 +1165,217 @@ function VoiceCatalog({
   }, [genderFilter, query, toneFilter]);
 
   return (
-    <aside className="space-y-3">
+    <aside className="space-y-5">
       <div>
         <div className="flex items-center justify-between gap-3">
-          <h2 className="font-heading text-lg font-semibold">Voice Catalog</h2>
+          <h2 className="font-heading text-lg font-semibold">Voice Library</h2>
           <span className="text-xs font-medium text-muted-foreground">
-            {filteredVoices.length}/{MVP_VOICES.length}
+            {filteredVoices.length}/{MVP_VOICES.length} built-in
           </span>
         </div>
         <p className="text-xs text-muted-foreground">
-          All Fal/Gemini voices include local English and Hindi MP3 previews.
+          Built-in voices, saved custom voices, and importable public voices.
         </p>
       </div>
-      <div className="space-y-2">
-        <div className="relative">
-          <Search
-            size={14}
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-            aria-hidden="true"
-          />
-          <input
-            className="h-9 w-full rounded-md border border-border bg-card pl-8 pr-3 text-sm outline-none transition placeholder:text-muted-foreground/70 focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search voice, tone, gender"
-            aria-label="Search voice catalog"
-          />
-        </div>
-        <div className="grid gap-2 sm:grid-cols-2">
-          <select
-            className="h-9 rounded-md border border-border bg-card px-2 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
-            value={genderFilter}
-            onChange={(event) =>
-              setGenderFilter(event.target.value as "all" | VoiceGender)
-            }
-            aria-label="Filter by gender"
-          >
-            <option value="all">All genders</option>
-            <option value="Female">Female</option>
-            <option value="Male">Male</option>
-          </select>
-          <select
-            className="h-9 rounded-md border border-border bg-card px-2 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
-            value={toneFilter}
-            onChange={(event) => setToneFilter(event.target.value)}
-            aria-label="Filter by tone"
-          >
-            <option value="all">All tones</option>
-            {tones.map((tone) => (
-              <option key={tone} value={tone}>
-                {tone}
-              </option>
-            ))}
-          </select>
-          <select
-            className="h-9 rounded-md border border-border bg-card px-2 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20 sm:col-span-2"
-            value={previewLanguage}
-            onChange={(event) =>
-              setPreviewLanguage(event.target.value as PreviewLanguage)
-            }
-            aria-label="Preview language"
-          >
-            {PREVIEW_LANGUAGE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-      <div className="grid max-h-[360px] gap-2 overflow-y-auto pr-1 lg:max-h-[360px]">
-        {filteredVoices.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
-            No voices match the current filters.
-          </div>
-        ) : (
-          filteredVoices.map((voice) => {
-            const previewId = `${voice.id}:${previewLanguage}`;
 
-            return (
-              <VoiceCard
-                key={voice.id}
-                voice={voice}
-                selected={
-                  mode === "single"
-                    ? selectedVoiceId === voice.id
-                    : speakers.some((speaker) => speaker.voice === voice.id)
-                }
-                assignedSpeakerIndexes={speakers.flatMap((speaker, index) =>
-                  speaker.voice === voice.id ? [index] : [],
-                )}
-                active={preview.activePreviewId === previewId}
-                isPlaying={preview.isPlaying}
-                error={preview.errors[previewId]}
-                mode={mode}
-                onSelect={() => {
-                  if (mode === "single") {
-                    onSelect(voice.id);
+      <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Library size={15} className="text-theme-primary" aria-hidden="true" />
+          <FieldLabel>Built-in TTS voices</FieldLabel>
+        </div>
+        <div className="space-y-2">
+          <div className="relative">
+            <Search
+              size={14}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <input
+              className="h-9 w-full rounded-md border border-border bg-card pl-8 pr-3 text-sm outline-none transition placeholder:text-muted-foreground/70 focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search voice, tone, gender"
+              aria-label="Search built-in voice catalog"
+            />
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <select
+              className="h-9 rounded-md border border-border bg-card px-2 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+              value={genderFilter}
+              onChange={(event) =>
+                setGenderFilter(event.target.value as "all" | VoiceGender)
+              }
+              aria-label="Filter by gender"
+            >
+              <option value="all">All genders</option>
+              <option value="Female">Female</option>
+              <option value="Male">Male</option>
+            </select>
+            <select
+              className="h-9 rounded-md border border-border bg-card px-2 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+              value={toneFilter}
+              onChange={(event) => setToneFilter(event.target.value)}
+              aria-label="Filter by tone"
+            >
+              <option value="all">All tones</option>
+              {tones.map((tone) => (
+                <option key={tone} value={tone}>
+                  {tone}
+                </option>
+              ))}
+            </select>
+            <select
+              className="h-9 rounded-md border border-border bg-card px-2 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20 sm:col-span-2"
+              value={previewLanguage}
+              onChange={(event) =>
+                setPreviewLanguage(event.target.value as PreviewLanguage)
+              }
+              aria-label="Preview language"
+            >
+              {PREVIEW_LANGUAGE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="grid max-h-[320px] gap-2 overflow-y-auto pr-1">
+          {filteredVoices.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+              No voices match the current filters.
+            </div>
+          ) : (
+            filteredVoices.map((voice) => {
+              const previewId = `${voice.id}:${previewLanguage}`;
+
+              return (
+                <VoiceCard
+                  key={voice.id}
+                  voice={voice}
+                  selected={
+                    mode === "single"
+                      ? selectedProvider === "gemini" &&
+                        selectedVoiceId === voice.id
+                      : speakers.some((speaker) => speaker.voice === voice.id)
                   }
-                }}
-                onAssignSpeaker={(speakerIndex) =>
-                  onAssignSpeaker(speakerIndex, voice.id)
-                }
-                onPreview={() => preview.preview(voice, previewLanguage)}
-              />
-            );
-          })
-        )}
-      </div>
+                  assignedSpeakerIndexes={speakers.flatMap((speaker, index) =>
+                    speaker.voice === voice.id ? [index] : [],
+                  )}
+                  active={preview.activePreviewId === previewId}
+                  isPlaying={preview.isPlaying}
+                  error={preview.errors[previewId]}
+                  mode={mode}
+                  onSelect={() => {
+                    if (mode === "single") {
+                      onSelect(voice.id);
+                    }
+                  }}
+                  onAssignSpeaker={(speakerIndex) =>
+                    onAssignSpeaker(speakerIndex, voice.id)
+                  }
+                  onPreview={() => preview.preview(voice, previewLanguage)}
+                />
+              );
+            })
+          )}
+        </div>
+      </section>
+
+      {mode === "single" ? (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Mic2 size={15} className="text-theme-primary" aria-hidden="true" />
+              <FieldLabel>Custom library</FieldLabel>
+            </div>
+            <span className="text-xs text-muted-foreground">
+              {customVoices.length} saved
+            </span>
+          </div>
+          {customVoices.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+              Create, clone, or import a voice to use it here.
+            </div>
+          ) : (
+            <div className="grid max-h-[300px] gap-2 overflow-y-auto pr-1">
+              {customVoices.map((voice) => (
+                <CustomVoiceCard
+                  key={voice.voiceId}
+                  voice={voice}
+                  selected={
+                    selectedProvider === "custom" &&
+                    selectedVoiceId === voice.voiceId
+                  }
+                  onSelect={() => onSelectCustom(voice.voiceId)}
+                  onRename={() => onRenameCustomVoice(voice)}
+                  onDelete={() => onDeleteCustomVoice(voice)}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      ) : (
+        <div className="rounded-lg border border-border bg-card px-3 py-3 text-xs text-muted-foreground">
+          Custom and public library voices are available in Single Voice mode.
+        </div>
+      )}
+
+      {mode === "single" ? (
+        <section className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Search size={15} className="text-theme-primary" aria-hidden="true" />
+            <FieldLabel>Public voice library</FieldLabel>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+            <input
+              className="h-9 rounded-md border border-border bg-card px-3 text-sm outline-none transition placeholder:text-muted-foreground/70 focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+              value={sharedSearch}
+              onChange={(event) => onSharedSearchChange(event.target.value)}
+              placeholder="Search Hindi, Indian English, creator..."
+              aria-label="Search public voice library"
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={libraryLoading}
+              onClick={onSearchSharedVoices}
+            >
+              {libraryLoading ? (
+                <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+              ) : (
+                <Search size={14} aria-hidden="true" />
+              )}
+              Search
+            </Button>
+          </div>
+          {libraryStatus ? (
+            <p className="text-xs text-muted-foreground">{libraryStatus}</p>
+          ) : null}
+          {libraryError ? (
+            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+              {libraryError}
+            </div>
+          ) : null}
+          {sharedVoices.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+              Search to load importable voices.
+            </div>
+          ) : (
+            <div className="grid max-h-[420px] gap-2 overflow-y-auto pr-1">
+              {sharedVoices.map((voice) => (
+                <PublicVoiceCard
+                  key={`${voice.publicOwnerId}-${voice.voiceId}`}
+                  voice={voice}
+                  importing={libraryLoading}
+                  onImport={() => onImportSharedVoice(voice)}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
     </aside>
   );
 }
@@ -1114,7 +1452,8 @@ function LocalHistoryPanel({
 
 function GenerationPanel({
   state,
-  selectedVoice,
+  selectedVoiceName,
+  selectedVoiceReady,
   speakerIssues,
   generationError,
   isGenerating,
@@ -1122,7 +1461,8 @@ function GenerationPanel({
   onSaveScript,
 }: {
   state: StudioState;
-  selectedVoice: Voice;
+  selectedVoiceName: string;
+  selectedVoiceReady: boolean;
   speakerIssues: string[];
   generationError?: { code: string; message: string; retryable: boolean };
   isGenerating: boolean;
@@ -1130,7 +1470,10 @@ function GenerationPanel({
   onSaveScript: () => void;
 }) {
   const canGenerate =
-    state.prompt.trim().length > 0 && !isGenerating && speakerIssues.length === 0;
+    state.prompt.trim().length > 0 &&
+    !isGenerating &&
+    speakerIssues.length === 0 &&
+    selectedVoiceReady;
   const characterCount = state.prompt.trim().length;
   const languageLabel =
     MVP_LANGUAGES.find((language) => language.id === state.languageCode)?.label ??
@@ -1146,7 +1489,13 @@ function GenerationPanel({
             return `${speaker.speaker_id || "Speaker"}: ${voice}`;
           })
           .join(" | ")
-      : selectedVoice.displayName;
+      : selectedVoiceName;
+  const credits =
+    state.provider === "custom" && state.mode === "single"
+      ? estimateCreditsFromCostUsd(
+          estimateCustomVoiceTextCostUsd(characterCount),
+        )
+      : estimatePromptCredits(state.prompt);
 
   return (
     <section className="space-y-3">
@@ -1163,6 +1512,14 @@ function GenerationPanel({
           <span className="text-right font-medium">{speakerSummary}</span>
         </div>
         <div className="flex items-start justify-between gap-3">
+          <span className="text-muted-foreground">Provider</span>
+          <span className="text-right font-medium">
+            {state.provider === "custom" && state.mode === "single"
+              ? "Custom library"
+              : "Built-in TTS"}
+          </span>
+        </div>
+        <div className="flex items-start justify-between gap-3">
           <span className="text-muted-foreground">Language</span>
           <span className="text-right font-medium">{languageLabel}</span>
         </div>
@@ -1176,7 +1533,7 @@ function GenerationPanel({
           <span className="text-muted-foreground">Credits</span>
           <span className="text-right font-medium">
             {characterCount.toLocaleString()} chars -{" "}
-            {formatCredits(estimatePromptCredits(state.prompt))}
+            {formatCredits(credits)}
           </span>
         </div>
       </div>
@@ -1209,6 +1566,11 @@ function GenerationPanel({
         {!state.prompt.trim() ? (
           <span className="text-xs text-muted-foreground">
             Add a script to enable generation.
+          </span>
+        ) : null}
+        {!selectedVoiceReady ? (
+          <span className="text-xs text-muted-foreground">
+            Select a saved custom voice or a built-in voice.
           </span>
         ) : null}
         {speakerIssues.length > 0 ? (
@@ -1328,6 +1690,12 @@ export function TTSStudio() {
   const [scripts, setScripts] = useState<LocalScript[]>([]);
   const [generations, setGenerations] = useState<LocalGeneration[]>([]);
   const [activeGeneration, setActiveGeneration] = useState<LocalGeneration | undefined>();
+  const [customVoices, setCustomVoices] = useState<CustomVoiceProfile[]>([]);
+  const [sharedVoices, setSharedVoices] = useState<SharedVoiceCard[]>([]);
+  const [sharedSearch, setSharedSearch] = useState("Hindi Indian English");
+  const [libraryLoading, setLibraryLoading] = useState(false);
+  const [libraryStatus, setLibraryStatus] = useState("");
+  const [libraryError, setLibraryError] = useState("");
 
   const audio = useAudioManager();
   const preview = useVoicePreview(audio);
@@ -1337,6 +1705,14 @@ export function TTSStudio() {
     () => MVP_VOICES.find((voice) => voice.id === state.voiceId) ?? MVP_VOICES[0],
     [state.voiceId],
   );
+  const selectedCustomVoice = useMemo(
+    () => customVoices.find((voice) => voice.voiceId === state.voiceId),
+    [customVoices, state.voiceId],
+  );
+  const selectedVoiceName =
+    state.provider === "custom"
+      ? selectedCustomVoice?.name ?? "Select a custom voice"
+      : selectedVoice.displayName;
 
   const speakerIssues = useMemo(() => {
     if (state.mode !== "multi") {
@@ -1371,6 +1747,173 @@ export function TTSStudio() {
     [],
   );
 
+  const refreshCustomVoices = useCallback(async () => {
+    const voices = await fetchCustomVoiceLibrary();
+    setCustomVoices(voices);
+    return voices;
+  }, []);
+
+  const searchSharedVoices = useCallback(
+    async (search: string) => {
+      setLibraryLoading(true);
+      setLibraryError("");
+      try {
+        const result = await fetchSharedVoiceLibrary(search);
+        setSharedVoices(result.voices);
+        setLibraryStatus(
+          result.voices.length > 0
+            ? `Loaded ${result.voices.length} public voices.`
+            : "No public voices matched that search.",
+        );
+      } catch (error) {
+        setLibraryError(
+          error instanceof Error ? error.message : "Could not search voices.",
+        );
+      } finally {
+        setLibraryLoading(false);
+      }
+    },
+    [],
+  );
+
+  const selectBuiltInVoice = useCallback((voiceId: string) => {
+    setState((current) => ({
+      ...current,
+      provider: "gemini",
+      voiceId,
+    }));
+  }, []);
+
+  const selectCustomVoice = useCallback((voiceId: string) => {
+    setState((current) => ({
+      ...current,
+      mode: "single",
+      provider: "custom",
+      voiceId,
+      outputFormat: "mp3",
+    }));
+  }, []);
+
+  const importSharedVoice = useCallback(
+    (voice: SharedVoiceCard) => {
+      void Promise.resolve()
+        .then(async () => {
+          setLibraryLoading(true);
+          setLibraryError("");
+          const response = await fetch("/api/custom-voices/library/import", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              publicOwnerId: voice.publicOwnerId,
+              voiceId: voice.voiceId,
+              name: voice.name,
+              description: voice.description,
+              previewUrl: voice.previewUrl,
+            }),
+          });
+          if (!response.ok) {
+            throw new Error(await readRouteError(response));
+          }
+          const data = (await response.json()) as { voice: CustomVoiceProfile };
+          const voices = await refreshCustomVoices();
+          setCustomVoices(
+            voices.some((item) => item.voiceId === data.voice.voiceId)
+              ? voices
+              : [data.voice, ...voices],
+          );
+          setState((current) => ({
+            ...current,
+            mode: "single",
+            provider: "custom",
+            voiceId: data.voice.voiceId,
+            outputFormat: "mp3",
+          }));
+          setLibraryStatus(`Added ${data.voice.name} to the custom library.`);
+        })
+        .catch((error) => {
+          setLibraryError(
+            error instanceof Error ? error.message : "Could not import voice.",
+          );
+        })
+        .finally(() => {
+          setLibraryLoading(false);
+        });
+    },
+    [refreshCustomVoices],
+  );
+
+  const renameCustomVoice = useCallback(
+    (voice: CustomVoiceProfile) => {
+      const nextName = window.prompt("Rename voice", voice.name)?.trim();
+      if (!nextName || nextName === voice.name) {
+        return;
+      }
+
+      void Promise.resolve()
+        .then(async () => {
+          const response = await fetch(
+            `/api/custom-voices/${encodeURIComponent(voice.voiceId)}`,
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ name: nextName }),
+            },
+          );
+          if (!response.ok) {
+            throw new Error(await readRouteError(response));
+          }
+          await refreshCustomVoices();
+          setLibraryStatus(`Renamed ${voice.name} to ${nextName}.`);
+        })
+        .catch((error) => {
+          setLibraryError(
+            error instanceof Error ? error.message : "Could not rename voice.",
+          );
+        });
+    },
+    [refreshCustomVoices],
+  );
+
+  const deleteCustomVoice = useCallback(
+    (voice: CustomVoiceProfile) => {
+      if (!window.confirm(`Delete ${voice.name} from the custom library?`)) {
+        return;
+      }
+
+      void Promise.resolve()
+        .then(async () => {
+          const response = await fetch(
+            `/api/custom-voices/${encodeURIComponent(voice.voiceId)}`,
+            { method: "DELETE" },
+          );
+          if (!response.ok) {
+            throw new Error(await readRouteError(response));
+          }
+          const voices = await refreshCustomVoices();
+          setState((current) =>
+            current.provider === "custom" && current.voiceId === voice.voiceId
+              ? {
+                  ...current,
+                  provider: "gemini",
+                  voiceId: "Kore",
+                }
+              : current,
+          );
+          setLibraryStatus(
+            voices.length > 0
+              ? `Deleted ${voice.name}.`
+              : `Deleted ${voice.name}. Custom library is empty.`,
+          );
+        })
+        .catch((error) => {
+          setLibraryError(
+            error instanceof Error ? error.message : "Could not delete voice.",
+          );
+        });
+    },
+    [refreshCustomVoices],
+  );
+
   const changeMode = useCallback(
     (mode: StudioState["mode"]) => {
       setState((current) => {
@@ -1386,11 +1929,22 @@ export function TTSStudio() {
           return {
             ...current,
             mode,
+            provider: "gemini",
+            voiceId: isMvpSelected(current.voiceId) ? current.voiceId : "Kore",
             prompt: `${current.speakers[0]?.speaker_id ?? "Speaker1"}: ${current.prompt}\n${current.speakers[1]?.speaker_id ?? "Speaker2"}:`,
           };
         }
 
-        return { ...current, mode };
+        return {
+          ...current,
+          mode,
+          ...(mode === "multi"
+            ? {
+                provider: "gemini" as const,
+                voiceId: isMvpSelected(current.voiceId) ? current.voiceId : "Kore",
+              }
+            : {}),
+        };
       });
     },
     [promptHasSpeakerPrefixes],
@@ -1405,6 +1959,40 @@ export function TTSStudio() {
       setActiveGeneration(storedGenerations[0]);
       setHydrated(true);
     });
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    void Promise.resolve()
+      .then(async () => {
+        const [customVoiceResult, sharedVoiceResult] = await Promise.all([
+          fetchCustomVoiceLibrary(),
+          fetchSharedVoiceLibrary("Hindi Indian English"),
+        ]);
+        if (!mounted) {
+          return;
+        }
+        setCustomVoices(customVoiceResult);
+        setSharedVoices(sharedVoiceResult.voices);
+        setLibraryStatus(
+          sharedVoiceResult.voices.length > 0
+            ? `Loaded ${sharedVoiceResult.voices.length} public voices.`
+            : "No public voices matched that search.",
+        );
+      })
+      .catch((error) => {
+        if (!mounted) {
+          return;
+        }
+        setLibraryError(
+          error instanceof Error ? error.message : "Could not load voices.",
+        );
+      });
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -1433,6 +2021,7 @@ export function TTSStudio() {
       styleInstructions: state.styleInstructions,
       mode: state.mode,
       voiceId: state.voiceId,
+      provider: state.provider,
       languageCode: state.languageCode,
       outputFormat: state.outputFormat,
       temperature: state.temperature,
@@ -1450,13 +2039,22 @@ export function TTSStudio() {
   const runGenerate = useCallback(() => {
     const providerLanguage = toProviderLanguageCode(state.languageCode);
     const styleInstructions = composeStyleInstructions(state);
+    const provider: "gemini" | "custom" =
+      state.mode === "single" && state.provider === "custom"
+        ? "custom"
+        : "gemini";
+    if (provider === "custom" && !selectedCustomVoice) {
+      return;
+    }
     const baseRequest = {
       prompt: state.prompt,
       style_instructions: styleInstructions,
-      provider: "gemini" as const,
-      output_format: state.outputFormat,
+      provider,
+      output_format: provider === "custom" ? "mp3" as const : state.outputFormat,
       temperature: state.temperature,
-      ...(providerLanguage ? { language_code: providerLanguage } : {}),
+      ...(provider === "gemini" && providerLanguage
+        ? { language_code: providerLanguage }
+        : {}),
     };
     const request =
       state.mode === "multi"
@@ -1471,7 +2069,10 @@ export function TTSStudio() {
         : {
             ...baseRequest,
             mode: "single" as const,
-            voice: state.voiceId,
+            voice:
+              provider === "custom"
+                ? selectedCustomVoice?.voiceId
+                : state.voiceId,
           };
 
     void generation.generate(request).then((item) => {
@@ -1480,7 +2081,7 @@ export function TTSStudio() {
         setGenerations(clientStore.listGenerations());
       }
     });
-  }, [generation, state]);
+  }, [generation, selectedCustomVoice, state]);
 
   const loadScript = useCallback((script: LocalScript) => {
     setState((current) => ({
@@ -1489,6 +2090,7 @@ export function TTSStudio() {
       styleInstructions: script.styleInstructions,
       mode: script.mode,
       voiceId: script.voiceId ?? current.voiceId,
+      provider: script.provider ?? current.provider,
       languageCode: script.languageCode ?? current.languageCode,
       outputFormat: script.outputFormat ?? current.outputFormat,
       temperature: script.temperature ?? current.temperature,
@@ -1505,7 +2107,9 @@ export function TTSStudio() {
       ...current,
       prompt: item.prompt,
       styleInstructions: item.styleInstructions ?? "",
+      mode: item.mode,
       voiceId: item.voiceId ?? current.voiceId,
+      provider: item.provider,
       languageCode: item.languageCode ?? current.languageCode,
       outputFormat: item.outputFormat ?? current.outputFormat,
       temperature: item.temperature ?? current.temperature,
@@ -1536,12 +2140,21 @@ export function TTSStudio() {
               <VoiceCatalog
                 mode={state.mode}
                 selectedVoiceId={state.voiceId}
+                selectedProvider={state.provider}
                 speakers={state.speakers}
                 preview={preview}
-                onSelect={(voiceId) => setState({ ...state, voiceId })}
+                customVoices={customVoices}
+                sharedVoices={sharedVoices}
+                sharedSearch={sharedSearch}
+                libraryLoading={libraryLoading}
+                libraryStatus={libraryStatus}
+                libraryError={libraryError}
+                onSelect={selectBuiltInVoice}
+                onSelectCustom={selectCustomVoice}
                 onAssignSpeaker={(speakerIndex, voiceId) =>
                   setState((current) => ({
                     ...current,
+                    provider: "gemini",
                     speakers: current.speakers.map((speaker, index) =>
                       index === speakerIndex
                         ? { ...speaker, voice: voiceId }
@@ -1549,12 +2162,22 @@ export function TTSStudio() {
                     ),
                   }))
                 }
+                onSharedSearchChange={setSharedSearch}
+                onSearchSharedVoices={() => void searchSharedVoices(sharedSearch)}
+                onImportSharedVoice={importSharedVoice}
+                onRenameCustomVoice={renameCustomVoice}
+                onDeleteCustomVoice={deleteCustomVoice}
               />
             </section>
             <section className="rounded-lg border border-border bg-background/88 p-4 shadow-sm">
               <GenerationPanel
                 state={state}
-                selectedVoice={selectedVoice}
+                selectedVoiceName={selectedVoiceName}
+                selectedVoiceReady={
+                  state.mode === "multi" ||
+                  state.provider === "gemini" ||
+                  Boolean(selectedCustomVoice)
+                }
                 speakerIssues={speakerIssues}
                 generationError={generation.error}
                 isGenerating={generation.isGenerating}

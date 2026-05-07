@@ -1,5 +1,5 @@
 export type TTSMode = "single" | "multi";
-export type TTSProvider = "gemini" | "clone" | "openai";
+export type TTSProvider = "gemini" | "custom" | "openai";
 export type TTSOutputFormat = "mp3" | "wav" | "ogg_opus";
 export type VoiceGender = "Male" | "Female";
 
@@ -39,7 +39,7 @@ export interface TTSGenerateRequest {
   language_code?: string;
   speakers?: Speaker[];
   mode: TTSMode;
-  provider?: TTSProvider;
+  provider?: "gemini" | "custom";
   output_format?: TTSOutputFormat;
   temperature?: number;
 }
@@ -81,6 +81,7 @@ export interface LocalScript {
   accentStrength?: number;
   tonePreset?: string;
   pacePreset?: string;
+  provider?: "gemini" | "custom";
   createdAt: string;
   updatedAt: string;
 }
@@ -96,7 +97,7 @@ export interface LocalGeneration {
   languageCode?: string;
   outputFormat?: TTSOutputFormat;
   temperature?: number;
-  provider: "gemini";
+  provider: "gemini" | "custom";
   audioUrl: string;
   fileName?: string;
   fileSize?: number;
@@ -111,6 +112,7 @@ export interface StudioState {
   prompt: string;
   styleInstructions: string;
   voiceId: string;
+  provider: "gemini" | "custom";
   languageCode: string;
   speakers: Speaker[];
   outputFormat: TTSOutputFormat;

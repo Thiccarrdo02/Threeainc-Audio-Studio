@@ -49,6 +49,7 @@ export const clientStore = {
       ...fallback,
       ...(stored ?? {}),
       speakers: stored?.speakers ?? fallback.speakers,
+      provider: stored?.provider ?? fallback.provider,
       outputFormat: stored?.outputFormat ?? fallback.outputFormat,
       temperature: stored?.temperature ?? fallback.temperature,
       accentPreset: stored?.accentPreset ?? fallback.accentPreset,

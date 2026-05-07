@@ -4,6 +4,11 @@ import {
   createCustomVoiceFileName,
   convertSpeechToSpeech,
 } from "@/lib/elevenlabs";
+import {
+  getFalErrorMessage,
+  getFalErrorStatus,
+  transformFalSpeechToSpeech,
+} from "@/lib/fal-custom-voices";
 import { getCustomVoiceByProviderId } from "@/lib/local-custom-voices";
 import type { ElevenLabsVoiceSettings } from "@/types/custom-voices";
 import type { TTSApiError } from "@/types/tts";
@@ -40,12 +45,32 @@ export async function POST(request: Request) {
 
     const localVoice = await getCustomVoiceByProviderId(voiceId);
     if (localVoice?.provider === "fal") {
-      return errorResponse(
-        400,
-        "VOICE_TRANSFORM_TARGET_UNSUPPORTED",
-        "This uploaded instant clone can generate typed speech, but audio transform needs a created or imported library voice.",
-      );
+      if (!localVoice.previewUrl) {
+        return errorResponse(
+          400,
+          "VOICE_REFERENCE_REQUIRED",
+          "This cloned voice needs a preview reference before it can transform audio.",
+        );
+      }
+
+      const result = await transformFalSpeechToSpeech({
+        sourceAudio: audioFile,
+        targetVoiceAudioUrl: localVoice.previewUrl,
+      });
+      const fileName =
+        result.audio.file_name ??
+        createCustomVoiceFileName(
+          localVoice.name ?? "custom-voice",
+          "transform",
+        ).replace(/\.mp3$/i, ".wav");
+
+      return NextResponse.json({
+        audio: result.audio,
+        requestId: result.requestId,
+        fileName,
+      });
     }
+
     const audio = await convertSpeechToSpeech({
       voiceId,
       audio: audioFile,
@@ -69,10 +94,11 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
+    const status = getFalErrorStatus(error);
     return errorResponse(
-      502,
+      status,
       "CUSTOM_VOICE_TRANSFORM_FAILED",
-      error instanceof Error ? error.message : "Voice transform failed.",
+      getFalErrorMessage(error, "Voice transform failed."),
     );
   }
 }

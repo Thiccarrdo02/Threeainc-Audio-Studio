@@ -73,3 +73,30 @@ export async function removeCustomVoice(voiceId: string) {
   });
   return existing;
 }
+
+export async function updateCustomVoiceMetadata(
+  voiceId: string,
+  patch: Partial<Pick<CustomVoiceProfile, "name" | "description">>,
+) {
+  const store = await readStore();
+  const existing = store.voices.find((voice) => voice.voiceId === voiceId);
+  if (!existing) {
+    return undefined;
+  }
+
+  const now = new Date().toISOString();
+  const updated: CustomVoiceProfile = {
+    ...existing,
+    ...(patch.name !== undefined ? { name: patch.name } : {}),
+    ...(patch.description !== undefined ? { description: patch.description } : {}),
+    updatedAt: now,
+  };
+
+  await writeStore({
+    voices: store.voices.map((voice) =>
+      voice.voiceId === voiceId ? updated : voice,
+    ),
+  });
+
+  return updated;
+}

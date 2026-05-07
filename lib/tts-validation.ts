@@ -32,7 +32,7 @@ export type ValidationResult =
 
 const OUTPUT_FORMATS = ["mp3", "wav", "ogg_opus"] as const;
 const MODES = ["single", "multi"] as const;
-const PROVIDERS = ["gemini", "clone", "openai"] as const;
+const PROVIDERS = ["gemini", "custom", "openai"] as const;
 const SPEAKER_ALIAS_PATTERN = /^[A-Za-z0-9]+$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -208,7 +208,7 @@ export function validateTTSRequest(input: unknown): ValidationResult {
     issues.push({
       field: "provider",
       code: "INVALID_PROVIDER",
-      message: "Provider must be gemini, clone, or openai.",
+      message: "Provider must be gemini, custom, or openai.",
     });
   }
 
@@ -253,7 +253,15 @@ export function validateTTSRequest(input: unknown): ValidationResult {
       speakers = speakerResult as Speaker[];
     }
   } else if (mode === "single") {
-    if (!isString(voice) || !isMvpVoiceId(voice)) {
+    if (provider === "custom") {
+      if (!isString(voice) || voice.trim().length === 0) {
+        issues.push({
+          field: "voice",
+          code: "INVALID_VOICE",
+          message: "A saved custom voice is required.",
+        });
+      }
+    } else if (!isString(voice) || !isMvpVoiceId(voice)) {
       issues.push({
         field: "voice",
         code: "INVALID_VOICE",
@@ -296,5 +304,5 @@ export function validateTTSRequest(input: unknown): ValidationResult {
 }
 
 export function isProviderNotImplemented(provider: TTSProvider): boolean {
-  return provider === "clone" || provider === "openai";
+  return provider === "openai";
 }

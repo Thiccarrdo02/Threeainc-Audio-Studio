@@ -21,7 +21,7 @@ export async function GET(request: Request) {
     const result = await listSharedVoices({
       search,
       language,
-      pageSize: 18,
+      pageSize: 30,
     });
     return NextResponse.json(result);
   } catch (error) {

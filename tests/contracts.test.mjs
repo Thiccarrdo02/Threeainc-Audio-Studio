@@ -177,13 +177,16 @@ test("storage and provider boundaries are documented in code", async () => {
   assert.match(customLab, /Create Voice/);
   assert.match(customLab, /Create New Voice/);
   assert.match(customLab, /Voice Remix/);
-  assert.match(customLab, /Browse Voices/);
+  assert.equal(customLab.includes("Browse Voices"), false);
+  assert.match(await read("components/studio/tts-studio.tsx"), /Public voice library/);
+  assert.match(await read("components/studio/tts-studio.tsx"), /Custom library/);
+  assert.match(await read("components/studio/tts-studio.tsx"), /Built-in TTS voices/);
   assert.match(customLab, /Upload voice samples/);
   assert.match(customLab, /Create previews/);
   assert.match(customLab, /Generate remix previews/);
   assert.equal(customLab.includes("+ 25%"), false);
   assert.equal(customLab.includes("ELEVENLABS_API_KEY"), false);
-  assert.match(await read("components/studio/tts-studio.tsx"), /Voice Cloning/);
+  assert.match(await read("components/studio/tts-studio.tsx"), /Design Voice/);
 });
 
 test("vercel deployment contract is present", async () => {

@@ -4,6 +4,7 @@ import { DEFAULT_ELEVENLABS_SETTINGS } from "@/types/custom-voices";
 
 const FAL_MINIMAX_CLONE_MODEL = "fal-ai/minimax/voice-clone";
 const FAL_MINIMAX_TTS_MODEL = "fal-ai/minimax/speech-02-hd";
+const FAL_SPEECH_TO_SPEECH_MODEL = "fal-ai/chatterbox/speech-to-speech";
 
 export const FAL_MINIMAX_CLONE_MODELS = [
   "speech-02-hd",
@@ -168,6 +169,33 @@ export async function createFalSpeech({
   return {
     audio: result.data.audio,
     durationMs: result.data.duration_ms,
+    requestId: result.requestId,
+  };
+}
+
+export async function transformFalSpeechToSpeech({
+  sourceAudio,
+  targetVoiceAudioUrl,
+}: {
+  sourceAudio: File;
+  targetVoiceAudioUrl: string;
+}) {
+  configureFal();
+  const sourceAudioUrl = await fal.storage.upload(sourceAudio);
+  const result = await fal.subscribe(FAL_SPEECH_TO_SPEECH_MODEL, {
+    input: {
+      source_audio_url: sourceAudioUrl,
+      target_voice_audio_url: targetVoiceAudioUrl,
+    },
+    logs: true,
+  });
+
+  if (!isFalSpeechOutput(result.data)) {
+    throw new Error("Voice transform returned an unexpected audio response.");
+  }
+
+  return {
+    audio: result.data.audio,
     requestId: result.requestId,
   };
 }
