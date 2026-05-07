@@ -557,8 +557,8 @@ function PreviewGrid({
 }
 
 async function fetchSharedLibraryVoices(): Promise<SharedLibraryVoice[]> {
-  const params = new URLSearchParams({ pageSize: "60" });
-  const response = await fetch(`/api/custom-voices/library?${params.toString()}`);
+  // No params → server returns the curated Hindi-heavy mix.
+  const response = await fetch("/api/custom-voices/library");
   if (!response.ok) {
     throw new Error(await readError(response));
   }

@@ -118,8 +118,60 @@ function titleCase(value?: string) {
     .join(" ");
 }
 
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: "English",
+  hi: "Hindi",
+  bn: "Bengali",
+  mr: "Marathi",
+  ta: "Tamil",
+  te: "Telugu",
+  gu: "Gujarati",
+  kn: "Kannada",
+  ml: "Malayalam",
+  pa: "Punjabi",
+  ur: "Urdu",
+  es: "Spanish",
+  fr: "French",
+  de: "German",
+  pt: "Portuguese",
+  it: "Italian",
+  ja: "Japanese",
+  ko: "Korean",
+  zh: "Chinese",
+  ar: "Arabic",
+  ru: "Russian",
+  tr: "Turkish",
+  pl: "Polish",
+  nl: "Dutch",
+  id: "Indonesian",
+  vi: "Vietnamese",
+  th: "Thai",
+  fil: "Filipino",
+  uk: "Ukrainian",
+  cs: "Czech",
+  sv: "Swedish",
+  el: "Greek",
+  he: "Hebrew",
+  fa: "Persian",
+  ro: "Romanian",
+};
+
+function languageLabel(value?: string) {
+  if (!value) return undefined;
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) return undefined;
+  // Common ISO-ish codes (e.g. "en", "hi", "pt-BR")
+  const direct = LANGUAGE_NAMES[trimmed];
+  if (direct) return direct;
+  const base = trimmed.split(/[-_]/)[0];
+  if (LANGUAGE_NAMES[base]) return LANGUAGE_NAMES[base];
+  // Already a full name
+  return titleCase(value);
+}
+
 function unifyBuiltin(voice: Voice): UnifiedVoice {
   // Built-in voices always have static preview MP3s under /public/previews.
+  // They are multilingual — they pass any language filter.
   return {
     ref: { kind: "builtin", id: voice.id },
     displayName: voice.displayName,
@@ -127,7 +179,7 @@ function unifyBuiltin(voice: Voice): UnifiedVoice {
     internalProvider: "builtin",
     gender: voice.gender,
     accent: voice.accent,
-    language: undefined,
+    language: "Multilingual",
     useCase: undefined,
     tones: voice.tones,
     source: "builtin",
@@ -144,7 +196,7 @@ function unifyCustom(voice: CustomVoiceProfile): UnifiedVoice {
     internalProvider: "custom",
     gender: titleCase(voice.labels?.gender),
     accent: titleCase(voice.labels?.accent),
-    language: titleCase(voice.labels?.language),
+    language: languageLabel(voice.labels?.language),
     useCase: titleCase(voice.labels?.use_case),
     tones: customVoiceTones(voice),
     source: voice.source,
@@ -220,7 +272,7 @@ function VoiceCard({
 
   return (
     <article
-      className={`group relative rounded-xl border bg-card p-3 transition ${
+      className={`group relative w-full overflow-hidden rounded-xl border bg-card p-2.5 transition ${
         selected
           ? "border-theme-primary shadow-[0_0_0_3px_rgba(51,83,254,0.10)]"
           : "border-border hover:border-theme-primary/50"
@@ -301,21 +353,27 @@ function VoiceCard({
       ) : null}
 
       {supportsMultiSpeaker ? (
-        <div className="mt-3 grid grid-cols-2 gap-2">
+        <div className="mt-2 flex gap-1.5">
           {[0, 1].map((index) => {
             const assigned = assignedSpeakerIndexes.includes(index);
             return (
-              <Button
+              <button
                 key={index}
                 type="button"
-                size="sm"
-                variant={assigned ? "default" : "outline"}
-                className={assigned ? "bg-theme-primary text-white" : ""}
+                className={`min-w-0 flex-1 rounded-md border px-2 py-1.5 text-[11px] font-medium transition ${
+                  assigned
+                    ? "border-theme-primary bg-theme-primary text-white"
+                    : "border-border bg-background text-muted-foreground hover:border-theme-primary hover:text-foreground"
+                }`}
                 onClick={() => onAssignSpeaker?.(index)}
+                aria-pressed={assigned}
+                title={`Assign to Speaker ${index + 1}`}
               >
-                <UserRoundCheck size={12} aria-hidden="true" />
-                Speaker {index + 1}
-              </Button>
+                <span className="inline-flex items-center justify-center gap-1">
+                  <UserRoundCheck size={11} aria-hidden="true" />
+                  S{index + 1}
+                </span>
+              </button>
             );
           })}
         </div>
@@ -392,6 +450,7 @@ export function VoicePicker({
         : userTab;
   const [query, setQuery] = useState("");
   const [genderFilter, setGenderFilter] = useState<"all" | "male" | "female">("all");
+  const [languageFilter, setLanguageFilter] = useState("all");
   const [accentFilter, setAccentFilter] = useState("all");
   const [toneFilter, setToneFilter] = useState("all");
 
@@ -407,11 +466,14 @@ export function VoicePicker({
     setUserTab(next);
     setToneFilter("all");
     setAccentFilter("all");
+    setLanguageFilter("all");
   }, []);
 
   const builtinUnified: UnifiedVoice[] = useMemo(() => {
     const fromCatalog = builtinVoices.map(unifyBuiltin);
-    const fromLibrary = importedFromLibrary.map(unifyCustom);
+    // Multi-speaker mode only supports the built-in catalog voices.
+    const fromLibrary =
+      mode === "multi" ? [] : importedFromLibrary.map(unifyCustom);
     // Dedupe by ref id (e.g. if a user has imported a library voice that we
     // are also fetching as a shared voice).
     const seen = new Set<string>();
@@ -423,7 +485,7 @@ export function VoicePicker({
       out.push(voice);
     }
     return out;
-  }, [builtinVoices, importedFromLibrary]);
+  }, [builtinVoices, importedFromLibrary, mode]);
 
   const customUnified: UnifiedVoice[] = useMemo(() => {
     let voices = userCreations.map(unifyCustom);
@@ -449,12 +511,30 @@ export function VoicePicker({
   const allAccents = useMemo(() => {
     const set = new Set<string>();
     for (const voice of activeList) {
-      const value = voice.accent ?? voice.language;
+      const value = voice.accent;
       if (!value) continue;
       if (value.toLowerCase() === "multilingual") continue;
       set.add(value);
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [activeList]);
+
+  const allLanguages = useMemo(() => {
+    const set = new Set<string>();
+    for (const voice of activeList) {
+      const value = voice.language;
+      if (!value) continue;
+      if (value === "Multilingual") continue;
+      set.add(value);
+    }
+    // Surface Hindi first when present, then alphabetical
+    const sorted = Array.from(set).sort((a, b) => a.localeCompare(b));
+    const hindiIndex = sorted.findIndex((value) => value === "Hindi");
+    if (hindiIndex > 0) {
+      const [hindi] = sorted.splice(hindiIndex, 1);
+      sorted.unshift(hindi);
+    }
+    return sorted;
   }, [activeList]);
 
   const filteredVoices = useMemo(() => {
@@ -478,14 +558,18 @@ export function VoicePicker({
         genderFilter === "all" ||
         (typeof voice.gender === "string" &&
           voice.gender.toLowerCase().includes(genderFilter));
+      // "Multilingual" voices match every language filter so built-in voices
+      // remain visible no matter what the user picks.
+      const matchesLanguage =
+        languageFilter === "all" ||
+        voice.language === "Multilingual" ||
+        voice.language === languageFilter;
       const matchesAccent =
-        accentFilter === "all" ||
-        voice.accent === accentFilter ||
-        voice.language === accentFilter;
+        accentFilter === "all" || voice.accent === accentFilter;
       const matchesTone = toneFilter === "all" || voice.tones.includes(toneFilter);
-      return matchesQuery && matchesGender && matchesAccent && matchesTone;
+      return matchesQuery && matchesGender && matchesLanguage && matchesAccent && matchesTone;
     });
-  }, [activeList, query, genderFilter, accentFilter, toneFilter]);
+  }, [activeList, query, genderFilter, languageFilter, accentFilter, toneFilter]);
 
   // Pinned voices are surfaced at the top regardless of filters
   const orderedVoices = useMemo(() => {
@@ -642,9 +726,9 @@ export function VoicePicker({
             aria-label="Search voices"
           />
         </div>
-        <div className="grid gap-2 sm:grid-cols-3">
+        <div className="grid grid-cols-2 gap-2">
           <select
-            className="h-9 rounded-md border border-border bg-card px-2 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+            className="h-8 min-w-0 rounded-md border border-border bg-card px-2 text-xs outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
             value={genderFilter}
             onChange={(event) =>
               setGenderFilter(event.target.value as "all" | "male" | "female")
@@ -656,7 +740,21 @@ export function VoicePicker({
             <option value="male">Male</option>
           </select>
           <select
-            className="h-9 rounded-md border border-border bg-card px-2 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+            className="h-8 min-w-0 rounded-md border border-border bg-card px-2 text-xs outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+            value={languageFilter}
+            onChange={(event) => setLanguageFilter(event.target.value)}
+            aria-label="Filter by language"
+            disabled={allLanguages.length === 0}
+          >
+            <option value="all">All languages</option>
+            {allLanguages.map((language) => (
+              <option key={language} value={language}>
+                {language}
+              </option>
+            ))}
+          </select>
+          <select
+            className="h-8 min-w-0 rounded-md border border-border bg-card px-2 text-xs outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
             value={accentFilter}
             onChange={(event) => setAccentFilter(event.target.value)}
             aria-label="Filter by accent"
@@ -670,7 +768,7 @@ export function VoicePicker({
             ))}
           </select>
           <select
-            className="h-9 rounded-md border border-border bg-card px-2 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+            className="h-8 min-w-0 rounded-md border border-border bg-card px-2 text-xs outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
             value={toneFilter}
             onChange={(event) => setToneFilter(event.target.value)}
             aria-label="Filter by tone"
@@ -721,7 +819,7 @@ export function VoicePicker({
         </section>
       ) : null}
 
-      <div className="grid max-h-[480px] gap-2 overflow-y-auto pr-1">
+      <div className="grid max-h-[480px] min-w-0 gap-2 overflow-y-auto overflow-x-hidden pr-1">
         {orderedVoices.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
             {tab === "custom"
