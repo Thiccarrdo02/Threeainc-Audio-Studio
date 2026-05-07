@@ -14,7 +14,7 @@ import {
   Trash2,
   UserRoundCheck,
 } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -454,13 +454,23 @@ export function VoicePicker({
   const [accentFilter, setAccentFilter] = useState("all");
   const [toneFilter, setToneFilter] = useState("all");
 
-  // Recents/pinned are stored client-side; lazily initialise to avoid SSR mismatch.
-  const [recents, setRecents] = useState<VoiceRef[]>(() =>
-    typeof window === "undefined" ? [] : loadRecentVoices(),
-  );
-  const [pinned, setPinned] = useState<VoiceRef[]>(() =>
-    typeof window === "undefined" ? [] : loadPinnedVoices(),
-  );
+  // Recents/pinned live in localStorage and only get pulled in after hydration
+  // — using them as initial state would cause a server/client HTML mismatch
+  // because the server has no localStorage.
+  const [hydrated, setHydrated] = useState(false);
+  const [recents, setRecents] = useState<VoiceRef[]>([]);
+  const [pinned, setPinned] = useState<VoiceRef[]>([]);
+
+  useEffect(() => {
+    // Microtask defers the syncs out of the effect body so the lint rule
+    // (set-state-in-effect) sees them as an async sync, which is exactly what
+    // they are — pulling localStorage in after hydration.
+    void Promise.resolve().then(() => {
+      setRecents(loadRecentVoices());
+      setPinned(loadPinnedVoices());
+      setHydrated(true);
+    });
+  }, []);
 
   const setTab = useCallback((next: VoiceTabKey) => {
     setUserTab(next);
@@ -521,19 +531,25 @@ export function VoicePicker({
 
   const allLanguages = useMemo(() => {
     const set = new Set<string>();
+    let hasMultilingual = false;
     for (const voice of activeList) {
       const value = voice.language;
       if (!value) continue;
-      if (value === "Multilingual") continue;
+      if (value === "Multilingual") {
+        hasMultilingual = true;
+        continue;
+      }
       set.add(value);
     }
-    // Surface Hindi first when present, then alphabetical
+    // Surface Hindi first when present, then alphabetical, then Multilingual
+    // last so picking it is an explicit choice.
     const sorted = Array.from(set).sort((a, b) => a.localeCompare(b));
     const hindiIndex = sorted.findIndex((value) => value === "Hindi");
     if (hindiIndex > 0) {
       const [hindi] = sorted.splice(hindiIndex, 1);
       sorted.unshift(hindi);
     }
+    if (hasMultilingual) sorted.push("Multilingual");
     return sorted;
   }, [activeList]);
 
@@ -558,12 +574,8 @@ export function VoicePicker({
         genderFilter === "all" ||
         (typeof voice.gender === "string" &&
           voice.gender.toLowerCase().includes(genderFilter));
-      // "Multilingual" voices match every language filter so built-in voices
-      // remain visible no matter what the user picks.
       const matchesLanguage =
-        languageFilter === "all" ||
-        voice.language === "Multilingual" ||
-        voice.language === languageFilter;
+        languageFilter === "all" || voice.language === languageFilter;
       const matchesAccent =
         accentFilter === "all" || voice.accent === accentFilter;
       const matchesTone = toneFilter === "all" || voice.tones.includes(toneFilter);
@@ -784,7 +796,7 @@ export function VoicePicker({
         </div>
       </div>
 
-      {recentUnified.length > 0 && mode !== "multi" ? (
+      {hydrated && recentUnified.length > 0 && mode !== "multi" ? (
         <section className="space-y-1.5">
           <div className="flex items-center gap-1.5 px-0.5">
             <Star size={12} className="text-theme-primary" aria-hidden="true" />

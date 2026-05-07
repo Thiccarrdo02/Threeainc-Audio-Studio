@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
-import { createCustomVoiceFileName, createSpeech } from "@/lib/elevenlabs";
+import {
+  createCustomVoiceFileName,
+  createSpeech,
+  sanitizeTextForCustomVoice,
+} from "@/lib/elevenlabs";
 import {
   createFalSpeech,
   getFalErrorMessage,
@@ -48,11 +52,14 @@ export async function POST(request: Request) {
       localVoice?.name ?? "custom-voice",
       "speech",
     );
+    // Strip tags the studio engine would read literally (e.g. [dramatic]) and
+    // turn known pause tags into <break/> elements it supports natively.
+    const cleanedText = sanitizeTextForCustomVoice(text);
 
     if (localVoice?.provider === "fal") {
       const audio = await createFalSpeech({
         voiceId,
-        text,
+        text: cleanedText,
         speed: settings.speed,
       });
       return NextResponse.json({
@@ -64,7 +71,7 @@ export async function POST(request: Request) {
 
     const audio = await createSpeech({
       voiceId,
-      text,
+      text: cleanedText,
       outputFormat: String(body.outputFormat ?? "mp3_44100_128"),
       seed,
       settings,

@@ -65,6 +65,52 @@ export function createCustomVoiceFileName(voiceName: string, suffix = "audio") {
   ].join("-") + ".mp3";
 }
 
+// Pause tags map to ElevenLabs's native <break/> syntax (officially supported
+// by their TTS endpoint). Everything else is a Gemini-only delivery hint —
+// we strip those tags so the studio voice doesn't read "dramatic" out loud.
+const ELEVENLABS_PAUSE_MAP: Record<string, string> = {
+  "short pause": '<break time="0.5s"/>',
+  "medium pause": '<break time="1.0s"/>',
+  "long pause": '<break time="2.0s"/>',
+};
+
+const ELEVENLABS_STRIP_TAGS = new Set([
+  "laughing",
+  "sigh",
+  "uhm",
+  "whispering",
+  "shouting",
+  "sarcasm",
+  "robotic",
+  "excited",
+  "slowly",
+  "fast",
+  "extremely fast",
+  "dramatic",
+  "cheerfully",
+]);
+
+/**
+ * The studio voice engine doesn't natively support inline audio tags like
+ * [dramatic] or [laughing] — left as text it will literally read the word.
+ * Convert known pause tags to <break/> elements and strip every other known
+ * delivery tag. Unknown bracketed content is left alone (could be the user's
+ * own text).
+ */
+export function sanitizeTextForCustomVoice(text: string): string {
+  return text
+    .replace(/\[([^\]]+)\]/g, (match, raw: string) => {
+      const lower = raw.trim().toLowerCase();
+      if (lower in ELEVENLABS_PAUSE_MAP) return ELEVENLABS_PAUSE_MAP[lower];
+      if (ELEVENLABS_STRIP_TAGS.has(lower)) return "";
+      return match;
+    })
+    // Collapse whitespace introduced by stripped tags.
+    .replace(/[ \t]+/g, " ")
+    .replace(/\s*\n\s*/g, "\n")
+    .trim();
+}
+
 export function toElevenLabsSettings(settings?: Partial<ElevenLabsVoiceSettings>) {
   const next = {
     ...DEFAULT_ELEVENLABS_SETTINGS,
