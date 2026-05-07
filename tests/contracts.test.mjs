@@ -178,15 +178,38 @@ test("storage and provider boundaries are documented in code", async () => {
   assert.match(customLab, /Create New Voice/);
   assert.match(customLab, /Voice Remix/);
   assert.equal(customLab.includes("Browse Voices"), false);
-  assert.match(await read("components/studio/tts-studio.tsx"), /Public voice library/);
-  assert.match(await read("components/studio/tts-studio.tsx"), /Custom library/);
-  assert.match(await read("components/studio/tts-studio.tsx"), /Built-in TTS voices/);
+  // The Studio uses a unified voice library: a single VoicePicker with
+  // Built-in and Custom tabs. The old "Public voice library" panel is folded
+  // into a "Browse more" expandable inside the Built-in tab.
+  const studio = await read("components/studio/tts-studio.tsx");
+  assert.match(studio, /VoicePicker/);
+  assert.match(studio, /selectVoice/);
+  assert.equal(
+    studio.includes("Public voice library"),
+    false,
+    "old Public voice library section should be removed",
+  );
+  const picker = await read("components/studio/voice-picker.tsx");
+  assert.match(picker, /Built-in/);
+  assert.match(picker, /Custom/);
+  assert.match(picker, /Voice Library/);
+  // Provider/engine names must not surface to end-users. The lower-case
+  // string "elevenlabs" remains as a type literal in code (not user-facing).
+  assert.equal(picker.includes("Gemini"), false, "voice picker must not surface Gemini name");
+  assert.equal(picker.includes("ElevenLabs"), false, "voice picker must not surface ElevenLabs name in user-facing copy");
+  // Same rule for the Studio component
+  assert.equal(studio.includes("Gemini"), false, "studio must not surface Gemini name");
+  assert.equal(studio.includes("ElevenLabs"), false, "studio must not surface ElevenLabs name");
   assert.match(customLab, /Upload voice samples/);
   assert.match(customLab, /Create previews/);
   assert.match(customLab, /Generate remix previews/);
   assert.equal(customLab.includes("+ 25%"), false);
   assert.equal(customLab.includes("ELEVENLABS_API_KEY"), false);
-  assert.match(await read("components/studio/tts-studio.tsx"), /Design Voice/);
+  // Voice Lab uses the shared VoicePicker
+  assert.match(customLab, /VoicePicker/);
+  // Top bar still surfaces the Design Voice routing label and the Voice Lab name
+  assert.match(studio, /Design Voice/);
+  assert.match(studio, /Voice Lab/);
 });
 
 test("vercel deployment contract is present", async () => {

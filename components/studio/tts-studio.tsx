@@ -2,22 +2,15 @@
 
 import {
   AlertCircle,
-  BadgeCheck,
-  Check,
   Clock3,
   Download,
-  Library,
-  Loader2,
   Mic2,
   Pause,
-  Pencil,
   Play,
   RotateCcw,
   Save,
-  Search,
   SlidersHorizontal,
   Sparkles,
-  Trash2,
   UserRoundCheck,
   Volume2,
   Wand2,
@@ -27,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { EXPRESSIVE_TAGS } from "@/config/expressive-tags";
 import { CustomVoiceLab } from "@/components/studio/custom-voice-lab";
+import { VoicePicker } from "@/components/studio/voice-picker";
 import { LONG_SCRIPT_WARNING_CHARACTERS } from "@/config/limits";
 import { MVP_LANGUAGES, toProviderLanguageCode } from "@/config/languages";
 import {
@@ -39,7 +33,7 @@ import { MVP_VOICES } from "@/config/voices";
 import { Button } from "@/components/ui/button";
 import { useAudioManager } from "@/hooks/use-audio-manager";
 import { useTTSGeneration } from "@/hooks/use-tts-generation";
-import { useVoicePreview, type PreviewLanguage } from "@/hooks/use-voice-preview";
+import { useVoicePreview } from "@/hooks/use-voice-preview";
 import {
   estimateCreditsFromCostUsd,
   estimateCustomVoiceTextCostUsd,
@@ -47,6 +41,13 @@ import {
   formatCredits,
 } from "@/lib/cost";
 import { clientStore, makeLocalId } from "@/lib/client-store";
+import {
+  libraryVoiceToProfile,
+  mergeVoiceProfiles,
+  previewLanguageForCode,
+  type SharedLibraryVoice,
+  type VoiceRef,
+} from "@/lib/voice-utils";
 import type { CustomVoiceProfile } from "@/types/custom-voices";
 import type {
   LanguageOption,
@@ -55,8 +56,6 @@ import type {
   Speaker,
   StudioState,
   TTSOutputFormat,
-  Voice,
-  VoiceGender,
 } from "@/types/tts";
 
 const defaultStudioState: StudioState = {
@@ -88,24 +87,6 @@ const OUTPUT_FORMAT_OPTIONS: Array<{
   { value: "ogg_opus", label: "Opus", description: "Efficient web audio" },
 ];
 
-const PREVIEW_LANGUAGE_OPTIONS = [
-  { value: "english", label: "English previews" },
-  { value: "hindi", label: "Hindi previews" },
-] as const;
-
-interface SharedVoiceCard {
-  publicOwnerId: string;
-  voiceId: string;
-  name: string;
-  description: string;
-  accent?: string;
-  gender?: string;
-  age?: string;
-  useCase?: string;
-  language?: string;
-  previewUrl?: string;
-}
-
 async function readRouteError(response: Response) {
   try {
     const data = await response.json();
@@ -124,16 +105,14 @@ async function fetchCustomVoiceLibrary() {
   return data.voices;
 }
 
-async function fetchSharedVoiceLibrary(search: string) {
-  const params = new URLSearchParams();
-  if (search.trim()) {
-    params.set("search", search.trim());
-  }
+async function fetchSharedLibraryVoices(): Promise<SharedLibraryVoice[]> {
+  const params = new URLSearchParams({ pageSize: "60" });
   const response = await fetch(`/api/custom-voices/library?${params.toString()}`);
   if (!response.ok) {
     throw new Error(await readRouteError(response));
   }
-  return (await response.json()) as { voices: SharedVoiceCard[] };
+  const data = (await response.json()) as { voices: SharedLibraryVoice[] };
+  return data.voices ?? [];
 }
 
 function clampAccentStrength(value: number) {
@@ -359,33 +338,42 @@ function TopBar({
           <div>
             <p className="font-heading text-base font-semibold">Audio Studio</p>
             <p className="hidden text-xs text-muted-foreground sm:block">
-              Local ThreeZinc speech workspace
+              {workspace === "tts"
+                ? "Generate, refine, and ship voice with one click"
+                : "Design Voice — clone, design, and remix in your voice lab"}
             </p>
           </div>
         </div>
 
         <div className="order-3 flex w-full rounded-md border border-border bg-card p-0.5 sm:order-none sm:w-auto">
           <button
-            className={`flex-1 rounded px-3 py-1.5 text-xs font-medium sm:flex-none ${
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium sm:flex-none ${
               workspace === "tts"
-                ? "bg-theme-primary text-white"
-                : "text-muted-foreground"
+                ? "bg-theme-primary text-white shadow-[0_2px_10px_rgba(31,76,238,0.20)]"
+                : "text-muted-foreground hover:text-foreground"
             }`}
             type="button"
             onClick={() => onWorkspaceChange("tts")}
+            aria-label="Open Studio"
           >
-            TTS
+            <Mic2 size={13} aria-hidden="true" />
+            Studio
           </button>
           <button
-            className={`flex-1 rounded px-3 py-1.5 text-xs font-medium sm:flex-none ${
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium sm:flex-none ${
               workspace === "voice-cloning"
-                ? "bg-theme-primary text-white"
-                : "text-muted-foreground"
+                ? "bg-theme-primary text-white shadow-[0_2px_10px_rgba(31,76,238,0.20)]"
+                : "text-muted-foreground hover:text-foreground"
             }`}
             type="button"
             onClick={() => onWorkspaceChange("voice-cloning")}
+            aria-label="Open Voice Lab"
           >
-            Design Voice
+            <Sparkles size={13} aria-hidden="true" />
+            Voice Lab
+            <span className="hidden text-[10px] uppercase tracking-wide opacity-70 sm:inline">
+              · Design Voice
+            </span>
           </button>
         </div>
 
@@ -421,7 +409,7 @@ function TopBar({
           </div>
         ) : (
           <div className="rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
-            Custom voice workspace
+            Voice Lab workspace
           </div>
         )}
       </div>
@@ -829,557 +817,6 @@ function MultiSpeakerBuilder({
   );
 }
 
-function VoiceCard({
-  voice,
-  selected,
-  assignedSpeakerIndexes,
-  active,
-  isPlaying,
-  error,
-  previewDisabledReason,
-  mode,
-  onSelect,
-  onAssignSpeaker,
-  onPreview,
-}: {
-  voice: Voice;
-  selected: boolean;
-  assignedSpeakerIndexes: number[];
-  active: boolean;
-  isPlaying: boolean;
-  error?: string;
-  previewDisabledReason?: string;
-  mode: StudioState["mode"];
-  onSelect: () => void;
-  onAssignSpeaker: (index: number) => void;
-  onPreview: () => void;
-}) {
-  const previewError = previewDisabledReason ?? error;
-
-  return (
-    <article
-      className={`rounded-lg border bg-card p-3 transition ${
-        selected
-          ? "border-theme-primary shadow-[0_0_0_3px_rgba(51,83,254,0.08)]"
-          : "border-border"
-      }`}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <button
-          type="button"
-          className="min-w-0 text-left"
-          onClick={onSelect}
-          aria-pressed={selected}
-        >
-          <div className="flex items-center gap-2">
-            <p className="font-heading text-base font-semibold">
-              {voice.displayName}
-            </p>
-            {selected ? (
-              <span className="flex size-5 items-center justify-center rounded-full bg-theme-primary text-white">
-                <Check size={12} aria-hidden="true" />
-              </span>
-            ) : null}
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {voice.description}
-          </p>
-        </button>
-        <Button
-          type="button"
-          size="icon-sm"
-          variant={active && isPlaying ? "secondary" : "outline"}
-          onClick={onPreview}
-          title={previewError ?? `Preview ${voice.displayName}`}
-          aria-label={`Preview ${voice.displayName}`}
-          disabled={Boolean(previewError)}
-        >
-          {active && isPlaying ? (
-            <Pause size={14} aria-hidden="true" />
-          ) : (
-            <Play size={14} aria-hidden="true" />
-          )}
-        </Button>
-      </div>
-      <div className="mt-3 flex flex-wrap gap-1">
-        <span className="rounded border border-border bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground">
-          {voice.gender}
-        </span>
-        {voice.tones.map((tone) => (
-          <span
-            key={tone}
-            className="rounded border border-border bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground"
-          >
-            {tone}
-          </span>
-        ))}
-      </div>
-      {mode === "multi" ? (
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          {[0, 1].map((index) => {
-            const assigned = assignedSpeakerIndexes.includes(index);
-            return (
-              <Button
-                key={index}
-                type="button"
-                size="sm"
-                variant={assigned ? "default" : "outline"}
-                className={assigned ? "bg-theme-primary text-white" : ""}
-                onClick={() => onAssignSpeaker(index)}
-              >
-                Speaker {index + 1}
-              </Button>
-            );
-          })}
-        </div>
-      ) : null}
-      {previewError ? (
-        <p className="mt-2 text-xs text-muted-foreground">{previewError}</p>
-      ) : null}
-    </article>
-  );
-}
-
-function customSourceLabel(source: CustomVoiceProfile["source"]) {
-  if (source === "instant-text" || source === "instant-clone") {
-    return "Cloned";
-  }
-  if (source === "voice-remix") {
-    return "Remix";
-  }
-  if (source === "voice-library") {
-    return "Library";
-  }
-  return "Designed";
-}
-
-function CustomVoiceCard({
-  voice,
-  selected,
-  onSelect,
-  onRename,
-  onDelete,
-}: {
-  voice: CustomVoiceProfile;
-  selected: boolean;
-  onSelect: () => void;
-  onRename: () => void;
-  onDelete: () => void;
-}) {
-  return (
-    <article
-      className={`rounded-lg border bg-card p-3 transition ${
-        selected
-          ? "border-theme-primary shadow-[0_0_0_3px_rgba(51,83,254,0.08)]"
-          : "border-border"
-      }`}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <button type="button" className="min-w-0 flex-1 text-left" onClick={onSelect}>
-          <div className="flex items-center gap-2">
-            <p className="truncate font-heading text-sm font-semibold">
-              {voice.name}
-            </p>
-            {selected ? (
-              <span className="flex size-5 items-center justify-center rounded-full bg-theme-primary text-white">
-                <Check size={12} aria-hidden="true" />
-              </span>
-            ) : null}
-          </div>
-          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-            {voice.description || "Saved custom voice."}
-          </p>
-        </button>
-        <div className="flex shrink-0 items-center gap-1">
-          <Button
-            type="button"
-            size="icon-sm"
-            variant="ghost"
-            onClick={onRename}
-            aria-label={`Rename ${voice.name}`}
-          >
-            <Pencil size={14} aria-hidden="true" />
-          </Button>
-          <Button
-            type="button"
-            size="icon-sm"
-            variant="ghost"
-            onClick={onDelete}
-            aria-label={`Delete ${voice.name}`}
-          >
-            <Trash2 size={14} aria-hidden="true" />
-          </Button>
-        </div>
-      </div>
-      <div className="mt-2 flex flex-wrap gap-1">
-        <span className="rounded border border-border bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground">
-          {customSourceLabel(voice.source)}
-        </span>
-        {voice.labels?.accent ? (
-          <span className="rounded border border-border bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground">
-            {voice.labels.accent}
-          </span>
-        ) : null}
-      </div>
-      {voice.previewUrl ? (
-        <audio className="mt-2 w-full" controls src={voice.previewUrl} />
-      ) : null}
-      <Button
-        type="button"
-        size="sm"
-        className="mt-2 w-full bg-theme-primary text-white hover:bg-theme-primary-hover"
-        onClick={onSelect}
-      >
-        {selected ? "Selected" : "Use voice"}
-      </Button>
-    </article>
-  );
-}
-
-function PublicVoiceCard({
-  voice,
-  importing,
-  onImport,
-}: {
-  voice: SharedVoiceCard;
-  importing: boolean;
-  onImport: () => void;
-}) {
-  const tags = [voice.language, voice.accent, voice.gender, voice.useCase].filter(
-    Boolean,
-  );
-
-  return (
-    <article className="rounded-lg border border-border bg-card p-3">
-      <div className="space-y-1">
-        <p className="font-heading text-sm font-semibold">{voice.name}</p>
-        <p className="line-clamp-2 text-xs text-muted-foreground">
-          {voice.description || "Public voice library voice."}
-        </p>
-      </div>
-      {tags.length > 0 ? (
-        <div className="mt-2 flex flex-wrap gap-1">
-          {tags.map((tag) => (
-            <span
-              key={tag}
-              className="rounded border border-border bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground"
-            >
-              {tag}
-            </span>
-          ))}
-        </div>
-      ) : null}
-      {voice.previewUrl ? (
-        <audio className="mt-2 w-full" controls src={voice.previewUrl} />
-      ) : null}
-      <Button
-        type="button"
-        size="sm"
-        className="mt-2 bg-theme-primary text-white hover:bg-theme-primary-hover"
-        disabled={importing}
-        onClick={onImport}
-      >
-        {importing ? (
-          <Loader2 size={14} className="animate-spin" aria-hidden="true" />
-        ) : (
-          <BadgeCheck size={14} aria-hidden="true" />
-        )}
-        Add to library
-      </Button>
-    </article>
-  );
-}
-
-function VoiceCatalog({
-  mode,
-  selectedVoiceId,
-  selectedProvider,
-  speakers,
-  preview,
-  customVoices,
-  sharedVoices,
-  sharedSearch,
-  libraryLoading,
-  libraryStatus,
-  libraryError,
-  onSelect,
-  onSelectCustom,
-  onAssignSpeaker,
-  onSharedSearchChange,
-  onSearchSharedVoices,
-  onImportSharedVoice,
-  onRenameCustomVoice,
-  onDeleteCustomVoice,
-}: {
-  mode: StudioState["mode"];
-  selectedVoiceId: string;
-  selectedProvider: StudioState["provider"];
-  speakers: Speaker[];
-  preview: ReturnType<typeof useVoicePreview>;
-  customVoices: CustomVoiceProfile[];
-  sharedVoices: SharedVoiceCard[];
-  sharedSearch: string;
-  libraryLoading: boolean;
-  libraryStatus?: string;
-  libraryError?: string;
-  onSelect: (voiceId: string) => void;
-  onSelectCustom: (voiceId: string) => void;
-  onAssignSpeaker: (speakerIndex: number, voiceId: string) => void;
-  onSharedSearchChange: (value: string) => void;
-  onSearchSharedVoices: () => void;
-  onImportSharedVoice: (voice: SharedVoiceCard) => void;
-  onRenameCustomVoice: (voice: CustomVoiceProfile) => void;
-  onDeleteCustomVoice: (voice: CustomVoiceProfile) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const [genderFilter, setGenderFilter] = useState<"all" | VoiceGender>("all");
-  const [toneFilter, setToneFilter] = useState("all");
-  const [previewLanguage, setPreviewLanguage] =
-    useState<PreviewLanguage>("english");
-
-  const tones = useMemo(
-    () =>
-      Array.from(new Set(MVP_VOICES.flatMap((voice) => voice.tones))).sort(
-        (a, b) => a.localeCompare(b),
-      ),
-    [],
-  );
-
-  const filteredVoices = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-
-    return MVP_VOICES.filter((voice) => {
-      const matchesQuery =
-        !normalizedQuery ||
-        [voice.displayName, voice.description, voice.gender, ...voice.tones]
-          .join(" ")
-          .toLowerCase()
-          .includes(normalizedQuery);
-      const matchesGender =
-        genderFilter === "all" || voice.gender === genderFilter;
-      const matchesTone =
-        toneFilter === "all" || voice.tones.includes(toneFilter);
-
-      return matchesQuery && matchesGender && matchesTone;
-    });
-  }, [genderFilter, query, toneFilter]);
-
-  return (
-    <aside className="space-y-5">
-      <div>
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="font-heading text-lg font-semibold">Voice Library</h2>
-          <span className="text-xs font-medium text-muted-foreground">
-            {filteredVoices.length}/{MVP_VOICES.length} built-in
-          </span>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Built-in voices, saved custom voices, and importable public voices.
-        </p>
-      </div>
-
-      <section className="space-y-3">
-        <div className="flex items-center gap-2">
-          <Library size={15} className="text-theme-primary" aria-hidden="true" />
-          <FieldLabel>Built-in TTS voices</FieldLabel>
-        </div>
-        <div className="space-y-2">
-          <div className="relative">
-            <Search
-              size={14}
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-              aria-hidden="true"
-            />
-            <input
-              className="h-9 w-full rounded-md border border-border bg-card pl-8 pr-3 text-sm outline-none transition placeholder:text-muted-foreground/70 focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search voice, tone, gender"
-              aria-label="Search built-in voice catalog"
-            />
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <select
-              className="h-9 rounded-md border border-border bg-card px-2 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
-              value={genderFilter}
-              onChange={(event) =>
-                setGenderFilter(event.target.value as "all" | VoiceGender)
-              }
-              aria-label="Filter by gender"
-            >
-              <option value="all">All genders</option>
-              <option value="Female">Female</option>
-              <option value="Male">Male</option>
-            </select>
-            <select
-              className="h-9 rounded-md border border-border bg-card px-2 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
-              value={toneFilter}
-              onChange={(event) => setToneFilter(event.target.value)}
-              aria-label="Filter by tone"
-            >
-              <option value="all">All tones</option>
-              {tones.map((tone) => (
-                <option key={tone} value={tone}>
-                  {tone}
-                </option>
-              ))}
-            </select>
-            <select
-              className="h-9 rounded-md border border-border bg-card px-2 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20 sm:col-span-2"
-              value={previewLanguage}
-              onChange={(event) =>
-                setPreviewLanguage(event.target.value as PreviewLanguage)
-              }
-              aria-label="Preview language"
-            >
-              {PREVIEW_LANGUAGE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-        <div className="grid max-h-[320px] gap-2 overflow-y-auto pr-1">
-          {filteredVoices.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
-              No voices match the current filters.
-            </div>
-          ) : (
-            filteredVoices.map((voice) => {
-              const previewId = `${voice.id}:${previewLanguage}`;
-
-              return (
-                <VoiceCard
-                  key={voice.id}
-                  voice={voice}
-                  selected={
-                    mode === "single"
-                      ? selectedProvider === "gemini" &&
-                        selectedVoiceId === voice.id
-                      : speakers.some((speaker) => speaker.voice === voice.id)
-                  }
-                  assignedSpeakerIndexes={speakers.flatMap((speaker, index) =>
-                    speaker.voice === voice.id ? [index] : [],
-                  )}
-                  active={preview.activePreviewId === previewId}
-                  isPlaying={preview.isPlaying}
-                  error={preview.errors[previewId]}
-                  mode={mode}
-                  onSelect={() => {
-                    if (mode === "single") {
-                      onSelect(voice.id);
-                    }
-                  }}
-                  onAssignSpeaker={(speakerIndex) =>
-                    onAssignSpeaker(speakerIndex, voice.id)
-                  }
-                  onPreview={() => preview.preview(voice, previewLanguage)}
-                />
-              );
-            })
-          )}
-        </div>
-      </section>
-
-      {mode === "single" ? (
-        <section className="space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Mic2 size={15} className="text-theme-primary" aria-hidden="true" />
-              <FieldLabel>Custom library</FieldLabel>
-            </div>
-            <span className="text-xs text-muted-foreground">
-              {customVoices.length} saved
-            </span>
-          </div>
-          {customVoices.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
-              Create, clone, or import a voice to use it here.
-            </div>
-          ) : (
-            <div className="grid max-h-[300px] gap-2 overflow-y-auto pr-1">
-              {customVoices.map((voice) => (
-                <CustomVoiceCard
-                  key={voice.voiceId}
-                  voice={voice}
-                  selected={
-                    selectedProvider === "custom" &&
-                    selectedVoiceId === voice.voiceId
-                  }
-                  onSelect={() => onSelectCustom(voice.voiceId)}
-                  onRename={() => onRenameCustomVoice(voice)}
-                  onDelete={() => onDeleteCustomVoice(voice)}
-                />
-              ))}
-            </div>
-          )}
-        </section>
-      ) : (
-        <div className="rounded-lg border border-border bg-card px-3 py-3 text-xs text-muted-foreground">
-          Custom and public library voices are available in Single Voice mode.
-        </div>
-      )}
-
-      {mode === "single" ? (
-        <section className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Search size={15} className="text-theme-primary" aria-hidden="true" />
-            <FieldLabel>Public voice library</FieldLabel>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-            <input
-              className="h-9 rounded-md border border-border bg-card px-3 text-sm outline-none transition placeholder:text-muted-foreground/70 focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
-              value={sharedSearch}
-              onChange={(event) => onSharedSearchChange(event.target.value)}
-              placeholder="Search Hindi, Indian English, creator..."
-              aria-label="Search public voice library"
-            />
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={libraryLoading}
-              onClick={onSearchSharedVoices}
-            >
-              {libraryLoading ? (
-                <Loader2 size={14} className="animate-spin" aria-hidden="true" />
-              ) : (
-                <Search size={14} aria-hidden="true" />
-              )}
-              Search
-            </Button>
-          </div>
-          {libraryStatus ? (
-            <p className="text-xs text-muted-foreground">{libraryStatus}</p>
-          ) : null}
-          {libraryError ? (
-            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
-              {libraryError}
-            </div>
-          ) : null}
-          {sharedVoices.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
-              Search to load importable voices.
-            </div>
-          ) : (
-            <div className="grid max-h-[420px] gap-2 overflow-y-auto pr-1">
-              {sharedVoices.map((voice) => (
-                <PublicVoiceCard
-                  key={`${voice.publicOwnerId}-${voice.voiceId}`}
-                  voice={voice}
-                  importing={libraryLoading}
-                  onImport={() => onImportSharedVoice(voice)}
-                />
-              ))}
-            </div>
-          )}
-        </section>
-      ) : null}
-    </aside>
-  );
-}
-
 function LocalHistoryPanel({
   generations,
   scripts,
@@ -1502,22 +939,14 @@ function GenerationPanel({
       <div>
         <h2 className="font-heading text-lg font-semibold">Generate</h2>
         <p className="text-xs text-muted-foreground">
-          Review the selected voice model, script size, and ThreeZinc credits.
+          Review the selected voice, script size, and ThreeZinc credits.
         </p>
       </div>
 
       <div className="grid gap-2 rounded-lg border border-border bg-card p-3 text-sm">
         <div className="flex items-start justify-between gap-3">
-          <span className="text-muted-foreground">Voice model</span>
+          <span className="text-muted-foreground">Voice</span>
           <span className="text-right font-medium">{speakerSummary}</span>
-        </div>
-        <div className="flex items-start justify-between gap-3">
-          <span className="text-muted-foreground">Provider</span>
-          <span className="text-right font-medium">
-            {state.provider === "custom" && state.mode === "single"
-              ? "Custom library"
-              : "Built-in TTS"}
-          </span>
         </div>
         <div className="flex items-start justify-between gap-3">
           <span className="text-muted-foreground">Language</span>
@@ -1690,16 +1119,24 @@ export function TTSStudio() {
   const [scripts, setScripts] = useState<LocalScript[]>([]);
   const [generations, setGenerations] = useState<LocalGeneration[]>([]);
   const [activeGeneration, setActiveGeneration] = useState<LocalGeneration | undefined>();
-  const [customVoices, setCustomVoices] = useState<CustomVoiceProfile[]>([]);
-  const [sharedVoices, setSharedVoices] = useState<SharedVoiceCard[]>([]);
-  const [sharedSearch, setSharedSearch] = useState("Hindi Indian English");
-  const [libraryLoading, setLibraryLoading] = useState(false);
-  const [libraryStatus, setLibraryStatus] = useState("");
+  const [savedCustomVoices, setSavedCustomVoices] = useState<CustomVoiceProfile[]>([]);
+  const [libraryVoices, setLibraryVoices] = useState<CustomVoiceProfile[]>([]);
+  // Initialise loading=true so the indicator shows during the first paint
+  // without us having to call setState synchronously inside the mount effect.
+  const [loadingLibrary, setLoadingLibrary] = useState(true);
+  const [statusToast, setStatusToast] = useState("");
   const [libraryError, setLibraryError] = useState("");
 
   const audio = useAudioManager();
   const preview = useVoicePreview(audio);
   const generation = useTTSGeneration();
+
+  // Saved customs (the user's local file) take precedence over fetched library
+  // entries so we keep any rename/preview overrides.
+  const customVoices = useMemo(
+    () => mergeVoiceProfiles(savedCustomVoices, libraryVoices),
+    [savedCustomVoices, libraryVoices],
+  );
 
   const selectedVoice = useMemo(
     () => MVP_VOICES.find((voice) => voice.id === state.voiceId) ?? MVP_VOICES[0],
@@ -1713,6 +1150,16 @@ export function TTSStudio() {
     state.provider === "custom"
       ? selectedCustomVoice?.name ?? "Select a custom voice"
       : selectedVoice.displayName;
+
+  const selectedVoiceRef: VoiceRef =
+    state.provider === "custom"
+      ? { kind: "custom", id: state.voiceId }
+      : { kind: "builtin", id: state.voiceId };
+
+  const previewLanguage = useMemo(
+    () => previewLanguageForCode(state.languageCode),
+    [state.languageCode],
+  );
 
   const speakerIssues = useMemo(() => {
     if (state.mode !== "multi") {
@@ -1749,98 +1196,28 @@ export function TTSStudio() {
 
   const refreshCustomVoices = useCallback(async () => {
     const voices = await fetchCustomVoiceLibrary();
-    setCustomVoices(voices);
+    setSavedCustomVoices(voices);
     return voices;
   }, []);
 
-  const searchSharedVoices = useCallback(
-    async (search: string) => {
-      setLibraryLoading(true);
-      setLibraryError("");
-      try {
-        const result = await fetchSharedVoiceLibrary(search);
-        setSharedVoices(result.voices);
-        setLibraryStatus(
-          result.voices.length > 0
-            ? `Loaded ${result.voices.length} public voices.`
-            : "No public voices matched that search.",
-        );
-      } catch (error) {
-        setLibraryError(
-          error instanceof Error ? error.message : "Could not search voices.",
-        );
-      } finally {
-        setLibraryLoading(false);
+  const selectVoice = useCallback((ref: VoiceRef) => {
+    setState((current) => {
+      if (ref.kind === "builtin") {
+        return {
+          ...current,
+          provider: "gemini",
+          voiceId: ref.id,
+        };
       }
-    },
-    [],
-  );
-
-  const selectBuiltInVoice = useCallback((voiceId: string) => {
-    setState((current) => ({
-      ...current,
-      provider: "gemini",
-      voiceId,
-    }));
+      return {
+        ...current,
+        mode: "single",
+        provider: "custom",
+        voiceId: ref.id,
+        outputFormat: "mp3",
+      };
+    });
   }, []);
-
-  const selectCustomVoice = useCallback((voiceId: string) => {
-    setState((current) => ({
-      ...current,
-      mode: "single",
-      provider: "custom",
-      voiceId,
-      outputFormat: "mp3",
-    }));
-  }, []);
-
-  const importSharedVoice = useCallback(
-    (voice: SharedVoiceCard) => {
-      void Promise.resolve()
-        .then(async () => {
-          setLibraryLoading(true);
-          setLibraryError("");
-          const response = await fetch("/api/custom-voices/library/import", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              publicOwnerId: voice.publicOwnerId,
-              voiceId: voice.voiceId,
-              name: voice.name,
-              description: voice.description,
-              previewUrl: voice.previewUrl,
-            }),
-          });
-          if (!response.ok) {
-            throw new Error(await readRouteError(response));
-          }
-          const data = (await response.json()) as { voice: CustomVoiceProfile };
-          const voices = await refreshCustomVoices();
-          setCustomVoices(
-            voices.some((item) => item.voiceId === data.voice.voiceId)
-              ? voices
-              : [data.voice, ...voices],
-          );
-          setState((current) => ({
-            ...current,
-            mode: "single",
-            provider: "custom",
-            voiceId: data.voice.voiceId,
-            outputFormat: "mp3",
-          }));
-          setLibraryStatus(`Added ${data.voice.name} to the custom library.`);
-        })
-        .catch((error) => {
-          setLibraryError(
-            error instanceof Error ? error.message : "Could not import voice.",
-          );
-        })
-        .finally(() => {
-          setLibraryLoading(false);
-        });
-    },
-    [refreshCustomVoices],
-  );
 
   const renameCustomVoice = useCallback(
     (voice: CustomVoiceProfile) => {
@@ -1863,7 +1240,7 @@ export function TTSStudio() {
             throw new Error(await readRouteError(response));
           }
           await refreshCustomVoices();
-          setLibraryStatus(`Renamed ${voice.name} to ${nextName}.`);
+          setStatusToast(`Renamed ${voice.name} to ${nextName}.`);
         })
         .catch((error) => {
           setLibraryError(
@@ -1876,7 +1253,7 @@ export function TTSStudio() {
 
   const deleteCustomVoice = useCallback(
     (voice: CustomVoiceProfile) => {
-      if (!window.confirm(`Delete ${voice.name} from the custom library?`)) {
+      if (!window.confirm(`Delete ${voice.name} from your library?`)) {
         return;
       }
 
@@ -1899,10 +1276,10 @@ export function TTSStudio() {
                 }
               : current,
           );
-          setLibraryStatus(
+          setStatusToast(
             voices.length > 0
               ? `Deleted ${voice.name}.`
-              : `Deleted ${voice.name}. Custom library is empty.`,
+              : `Deleted ${voice.name}. Your library is empty.`,
           );
         })
         .catch((error) => {
@@ -1964,36 +1341,46 @@ export function TTSStudio() {
   useEffect(() => {
     let mounted = true;
 
-    void Promise.resolve()
-      .then(async () => {
-        const [customVoiceResult, sharedVoiceResult] = await Promise.all([
-          fetchCustomVoiceLibrary(),
-          fetchSharedVoiceLibrary("Hindi Indian English"),
-        ]);
-        if (!mounted) {
-          return;
-        }
-        setCustomVoices(customVoiceResult);
-        setSharedVoices(sharedVoiceResult.voices);
-        setLibraryStatus(
-          sharedVoiceResult.voices.length > 0
-            ? `Loaded ${sharedVoiceResult.voices.length} public voices.`
-            : "No public voices matched that search.",
-        );
+    // Saved (locally-persisted) voices first — required for accurate names.
+    void fetchCustomVoiceLibrary()
+      .then((voices) => {
+        if (!mounted) return;
+        setSavedCustomVoices(voices);
       })
       .catch((error) => {
-        if (!mounted) {
-          return;
-        }
+        if (!mounted) return;
         setLibraryError(
           error instanceof Error ? error.message : "Could not load voices.",
         );
+      });
+
+    // Library voices are an enhancement — failing to fetch them shouldn't
+    // break the UI. They appear silently in the Built-in tab when available.
+    void fetchSharedLibraryVoices()
+      .then((voices) => {
+        if (!mounted) return;
+        setLibraryVoices(voices.map(libraryVoiceToProfile));
+      })
+      .catch(() => {
+        // Swallow: missing API key or transient failure. The studio works
+        // without the extended library — built-in voices are still available.
+      })
+      .finally(() => {
+        if (!mounted) return;
+        setLoadingLibrary(false);
       });
 
     return () => {
       mounted = false;
     };
   }, []);
+
+  // Auto-clear toasts after a moment
+  useEffect(() => {
+    if (!statusToast) return;
+    const handle = window.setTimeout(() => setStatusToast(""), 3500);
+    return () => window.clearTimeout(handle);
+  }, [statusToast]);
 
   useEffect(() => {
     if (hydrated) {
@@ -2137,37 +1524,43 @@ export function TTSStudio() {
 
           <div className="space-y-5">
             <section className="rounded-lg border border-border bg-background/88 p-4 shadow-sm">
-              <VoiceCatalog
+              <VoicePicker
                 mode={state.mode}
-                selectedVoiceId={state.voiceId}
-                selectedProvider={state.provider}
+                visibility={state.mode === "multi" ? "builtin-only" : "all"}
+                builtinVoices={MVP_VOICES}
+                customVoices={customVoices}
+                selectedRef={selectedVoiceRef}
                 speakers={state.speakers}
                 preview={preview}
-                customVoices={customVoices}
-                sharedVoices={sharedVoices}
-                sharedSearch={sharedSearch}
-                libraryLoading={libraryLoading}
-                libraryStatus={libraryStatus}
-                libraryError={libraryError}
-                onSelect={selectBuiltInVoice}
-                onSelectCustom={selectCustomVoice}
-                onAssignSpeaker={(speakerIndex, voiceId) =>
+                previewLanguage={previewLanguage}
+                loadingLibrary={loadingLibrary}
+                onSelect={selectVoice}
+                onAssignSpeaker={(speakerIndex, ref) => {
+                  if (ref.kind !== "builtin") return;
                   setState((current) => ({
                     ...current,
                     provider: "gemini",
                     speakers: current.speakers.map((speaker, index) =>
                       index === speakerIndex
-                        ? { ...speaker, voice: voiceId }
+                        ? { ...speaker, voice: ref.id }
                         : speaker,
                     ),
-                  }))
-                }
-                onSharedSearchChange={setSharedSearch}
-                onSearchSharedVoices={() => void searchSharedVoices(sharedSearch)}
-                onImportSharedVoice={importSharedVoice}
+                  }));
+                }}
                 onRenameCustomVoice={renameCustomVoice}
                 onDeleteCustomVoice={deleteCustomVoice}
+                subtitle={
+                  state.mode === "multi"
+                    ? "Multi-speaker mode uses our built-in TTS voices."
+                    : "Pick any voice. Pin favourites, search the library, or design your own in Voice Lab."
+                }
               />
+              {libraryError ? (
+                <p className="mt-2 text-xs text-red-700">{libraryError}</p>
+              ) : null}
+              {statusToast ? (
+                <p className="mt-2 text-xs text-emerald-700">{statusToast}</p>
+              ) : null}
             </section>
             <section className="rounded-lg border border-border bg-background/88 p-4 shadow-sm">
               <GenerationPanel

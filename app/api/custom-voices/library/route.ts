@@ -18,10 +18,12 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const search = url.searchParams.get("search")?.trim() || undefined;
     const language = url.searchParams.get("language")?.trim() || undefined;
+    const pageSizeParam = url.searchParams.get("pageSize");
+    const pageSize = pageSizeParam ? Number(pageSizeParam) : 60;
     const result = await listSharedVoices({
       search,
       language,
-      pageSize: 30,
+      pageSize: Number.isFinite(pageSize) ? pageSize : 60,
     });
     return NextResponse.json(result);
   } catch (error) {

@@ -9,6 +9,7 @@ coverage/
 .codex/
 .get-shit-done-source/
 .local/
+.claude/
 *.log
 *.tsbuildinfo
 Thumbs.db

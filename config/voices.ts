@@ -49,6 +49,7 @@ export const ALL_VOICES = voiceMeta.map((voice) => ({
     hindi: `/previews/hi/${voice.id}.mp3`,
   },
   enabledInMvp: true,
+  provider: "gemini" as const,
 })) satisfies Voice[];
 
 export const MVP_VOICES = ALL_VOICES;

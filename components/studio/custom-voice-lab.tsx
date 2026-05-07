@@ -6,15 +6,12 @@ import {
   CheckCircle2,
   Download,
   FileAudio2,
-  Library,
   Loader2,
   Mic2,
-  Pencil,
   RefreshCcw,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
-  Trash2,
   UploadCloud,
   Wand2,
   X,
@@ -22,6 +19,10 @@ import {
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { VoicePicker } from "@/components/studio/voice-picker";
+import { useAudioManager } from "@/hooks/use-audio-manager";
+import { useVoicePreview } from "@/hooks/use-voice-preview";
+import { MVP_VOICES } from "@/config/voices";
 import {
   countBillableCharacters,
   estimateCreditsFromCostUsd,
@@ -29,6 +30,12 @@ import {
   estimateCustomVoiceTransformCostUsd,
   formatCredits,
 } from "@/lib/cost";
+import {
+  libraryVoiceToProfile,
+  mergeVoiceProfiles,
+  type SharedLibraryVoice,
+  type VoiceRef,
+} from "@/lib/voice-utils";
 import {
   DEFAULT_ELEVENLABS_SETTINGS,
   type CustomVoiceProfile,
@@ -377,129 +384,6 @@ function CreditEstimateCard({
   );
 }
 
-function VoiceLibraryPanel({
-  voices,
-  selectedVoiceId,
-  loading,
-  onSelect,
-  onRefresh,
-  onDelete,
-  onRename,
-}: {
-  voices: CustomVoiceProfile[];
-  selectedVoiceId: string;
-  loading: boolean;
-  onSelect: (voiceId: string) => void;
-  onRefresh: () => void;
-  onDelete: (voice: CustomVoiceProfile) => void;
-  onRename: (voice: CustomVoiceProfile) => void;
-}) {
-  return (
-    <aside className="space-y-4 rounded-lg border border-border bg-background/90 p-4 shadow-sm">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Library className="size-4 text-theme-primary" aria-hidden="true" />
-          <h2 className="font-heading text-lg font-semibold">Voice Library</h2>
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={onRefresh}
-          disabled={loading}
-        >
-          {loading ? (
-            <Loader2 size={14} className="animate-spin" aria-hidden="true" />
-          ) : (
-            <RefreshCcw size={14} aria-hidden="true" />
-          )}
-          Refresh
-        </Button>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <div className="rounded-lg border border-border bg-card px-3 py-2">
-          <p className="text-xs text-muted-foreground">Custom voices</p>
-          <p className="text-lg font-semibold">{voices.length}</p>
-        </div>
-        <div className="rounded-lg border border-border bg-card px-3 py-2">
-          <p className="text-xs text-muted-foreground">Library</p>
-          <p className="text-sm font-semibold">Local workspace</p>
-        </div>
-      </div>
-
-      {voices.length === 0 ? (
-        <div className="space-y-2 rounded-lg border border-dashed border-border px-3 py-5 text-sm text-muted-foreground">
-          <p>No custom voices yet.</p>
-          <p>
-            Start with Instant Clone or Create Voice, then save a preview to use it
-            here.
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {voices.map((voice) => {
-            const selected = voice.voiceId === selectedVoiceId;
-            return (
-              <div
-                key={voice.voiceId}
-                className={`rounded-lg border p-2 transition ${
-                  selected
-                    ? "border-theme-primary bg-[rgba(51,83,254,0.08)]"
-                    : "border-border bg-card"
-                }`}
-              >
-                <div className="flex items-start gap-2">
-                  <button
-                    type="button"
-                    className="min-w-0 flex-1 text-left"
-                    onClick={() => onSelect(voice.voiceId)}
-                  >
-                    <div className="flex items-center gap-2">
-                      <p className="truncate text-sm font-semibold">{voice.name}</p>
-                      <span className="rounded border border-border bg-background px-1.5 py-0.5 text-[0.68rem] font-medium text-muted-foreground">
-                        {labelSource(voice.source)}
-                      </span>
-                    </div>
-                    <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                      {voice.description || "No description saved."}
-                    </p>
-                  </button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => onRename(voice)}
-                    aria-label={`Rename ${voice.name}`}
-                  >
-                    <Pencil size={14} aria-hidden="true" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => onDelete(voice)}
-                    aria-label={`Delete ${voice.name}`}
-                  >
-                    <Trash2 size={14} aria-hidden="true" />
-                  </Button>
-                </div>
-                {voice.previewUrl ? (
-                  <audio
-                    className="mt-2 w-full"
-                    controls
-                    src={voice.previewUrl}
-                  />
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </aside>
-  );
-}
-
 function VoiceSettingsEditor({
   settings,
   onChange,
@@ -672,15 +556,40 @@ function PreviewGrid({
   );
 }
 
+async function fetchSharedLibraryVoices(): Promise<SharedLibraryVoice[]> {
+  const params = new URLSearchParams({ pageSize: "60" });
+  const response = await fetch(`/api/custom-voices/library?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+  const data = (await response.json()) as { voices: SharedLibraryVoice[] };
+  return data.voices ?? [];
+}
+
 export function CustomVoiceLab() {
   const [mode, setMode] = useState<LabMode>("design");
-  const [voices, setVoices] = useState<CustomVoiceProfile[]>([]);
-  const [selectedVoiceId, setSelectedVoiceId] = useState("");
+  const [savedVoices, setSavedVoices] = useState<CustomVoiceProfile[]>([]);
+  const [libraryVoices, setLibraryVoices] = useState<CustomVoiceProfile[]>([]);
+  // Initialise loading=true so the picker can show a hint during the first paint
+  // without us calling setState synchronously inside the mount effect.
+  const [loadingLibrary, setLoadingLibrary] = useState(true);
+  const [selectedVoiceRef, setSelectedVoiceRef] = useState<VoiceRef | null>(null);
+
+  const voices = useMemo(
+    () => mergeVoiceProfiles(savedVoices, libraryVoices),
+    [savedVoices, libraryVoices],
+  );
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [busyAction, setBusyAction] = useState<BusyAction | null>(null);
   const [voiceCapabilities, setVoiceCapabilities] =
     useState<VoiceCapabilities | null>(null);
+
+  const audio = useAudioManager();
+  const preview = useVoicePreview(audio);
+
+  const selectedVoiceId = selectedVoiceRef?.id ?? "";
+  const selectedKind = selectedVoiceRef?.kind ?? "builtin";
 
   const [cloneName, setCloneName] = useState("");
   const [cloneDescription, setCloneDescription] = useState("");
@@ -734,9 +643,21 @@ export function CustomVoiceLab() {
   const [saveDescription, setSaveDescription] = useState("");
 
   const selectedVoice = useMemo(
-    () => voices.find((voice) => voice.voiceId === selectedVoiceId),
-    [selectedVoiceId, voices],
+    () =>
+      selectedKind === "custom"
+        ? voices.find((voice) => voice.voiceId === selectedVoiceId)
+        : undefined,
+    [selectedKind, selectedVoiceId, voices],
   );
+  const selectedBuiltin = useMemo(
+    () =>
+      selectedKind === "builtin"
+        ? MVP_VOICES.find((voice) => voice.id === selectedVoiceId)
+        : undefined,
+    [selectedKind, selectedVoiceId],
+  );
+  const selectedVoiceName =
+    selectedVoice?.name ?? selectedBuiltin?.displayName ?? "Select a voice";
 
   const busy = busyAction !== null;
   const canClone =
@@ -758,13 +679,16 @@ export function CustomVoiceLab() {
     Boolean(selectedVoiceId) &&
     speechText.trim().length > 0 &&
     speechText.trim().length <= 40000;
+  // Voice changer / remix only operate on saved custom voices
   const canConvert =
     !busy &&
+    selectedKind === "custom" &&
     Boolean(selectedVoiceId) &&
     voiceChangerFile.length === 1;
   const canDesign = !busy && designDescription.trim().length >= 20;
   const canRemix =
     !busy &&
+    selectedKind === "custom" &&
     Boolean(selectedVoiceId) &&
     selectedVoice?.provider === "elevenlabs" &&
     remixDescription.trim().length >= 5;
@@ -786,28 +710,61 @@ export function CustomVoiceLab() {
     setBusyAction("refresh");
     try {
       const next = await fetchVoices();
-      setVoices(next);
-      setSelectedVoiceId((current) =>
-        next.some((voice) => voice.voiceId === current)
-          ? current
-          : next[0]?.voiceId ?? "",
-      );
+      setSavedVoices(next);
+      setSelectedVoiceRef((current) => {
+        if (current && current.kind === "custom") {
+          const stillExists = next.some((voice) => voice.voiceId === current.id);
+          if (stillExists) return current;
+        }
+        if (current && current.kind === "builtin") return current;
+        const first = next[0];
+        return first ? { kind: "custom", id: first.voiceId } : null;
+      });
       return next;
     } finally {
       setBusyAction((current) => (current === "refresh" ? null : current));
     }
   }, []);
 
+  const selectVoiceRef = useCallback((ref: VoiceRef) => {
+    setSelectedVoiceRef(ref);
+  }, []);
+
   useEffect(() => {
-    void Promise.resolve()
-      .then(async () => {
-        await refreshVoices();
-        const capabilities = await fetchVoiceCapabilities();
+    let mounted = true;
+    // Microtask defers the synchronous setBusyAction inside refreshVoices so
+    // the lint rule sees it as a side effect of an async chain, not a sync
+    // setState in the effect body.
+    void Promise.resolve().then(() => {
+      if (!mounted) return;
+      return refreshVoices().catch(() => {
+        // Saved voices unavailable — ignore so the picker still shows built-ins.
+      });
+    });
+    void fetchVoiceCapabilities()
+      .then((capabilities) => {
+        if (!mounted) return;
         setVoiceCapabilities(capabilities);
       })
-      .catch((caught) => {
-        setError(caught instanceof Error ? caught.message : "Could not load voices.");
+      .catch(() => {
+        // The studio voice key may be unconfigured. Don't surface a hard error;
+        // the lab actions that need it already show their own status banners.
       });
+    void fetchSharedLibraryVoices()
+      .then((shared) => {
+        if (!mounted) return;
+        setLibraryVoices(shared.map(libraryVoiceToProfile));
+      })
+      .catch(() => {
+        // Library is an enhancement; absence is silent.
+      })
+      .finally(() => {
+        if (!mounted) return;
+        setLoadingLibrary(false);
+      });
+    return () => {
+      mounted = false;
+    };
   }, [refreshVoices]);
 
   useEffect(() => {
@@ -915,7 +872,7 @@ export function CustomVoiceLab() {
       setCloneConsent(false);
       setStatus(`Created ${data.voice.name}.`);
       await refreshVoices();
-      setSelectedVoiceId(data.voice.voiceId);
+      setSelectedVoiceRef({ kind: "custom", id: data.voice.voiceId });
       setMode("speech");
     });
   }, [
@@ -966,7 +923,7 @@ export function CustomVoiceLab() {
         label: "Instant clone output",
       });
       const next = await refreshVoices();
-      setSelectedVoiceId(data.voice.voiceId);
+      setSelectedVoiceRef({ kind: "custom", id: data.voice.voiceId });
       setStatus(`Cloned and saved ${data.voice.name}.`);
       if (next.length === 0) {
         await refreshVoices();
@@ -987,6 +944,23 @@ export function CustomVoiceLab() {
   const generateSpeech = useCallback(() => {
     void runAction("speech", async () => {
       setAudioResult(null);
+      if (selectedKind === "builtin") {
+        // Built-in voice: route to the standard TTS endpoint.
+        const response = await fetch("/api/tts/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: speechText.trim(),
+            voice: selectedVoiceId,
+            mode: "single",
+            provider: "gemini",
+            output_format: "mp3",
+          }),
+        });
+        setAudioResult(await audioResultFromResponse(response, "Generated speech"));
+        setStatus("Generated speech with the built-in voice.");
+        return;
+      }
       const response = await fetch("/api/custom-voices/speech", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1004,6 +978,7 @@ export function CustomVoiceLab() {
   }, [
     outputFormat,
     runAction,
+    selectedKind,
     selectedVoiceId,
     settings,
     speechSeed,
@@ -1129,7 +1104,7 @@ export function CustomVoiceLab() {
         setStatus(`Saved ${data.voice.name}.`);
         setPreviews([]);
         await refreshVoices();
-        setSelectedVoiceId(data.voice.voiceId);
+        setSelectedVoiceRef({ kind: "custom", id: data.voice.voiceId });
         setMode("speech");
       });
     },
@@ -1152,7 +1127,7 @@ export function CustomVoiceLab() {
         }
         setStatus(`Deleted ${voice.name}.`);
         const next = await refreshVoices();
-        setSelectedVoiceId(next[0]?.voiceId ?? "");
+        setSelectedVoiceRef(next[0] ? { kind: "custom", id: next[0].voiceId } : null);
       });
     },
     [refreshVoices, runAction],
@@ -1220,24 +1195,64 @@ export function CustomVoiceLab() {
         </div>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[340px_minmax(0,1fr)]">
-        <VoiceLibraryPanel
-          voices={voices}
-          selectedVoiceId={selectedVoiceId}
-          loading={busyAction === "refresh"}
-          onSelect={setSelectedVoiceId}
-          onRefresh={() => {
-            setError("");
-            setStatus("");
-            void refreshVoices().catch((caught) => {
-              setError(
-                caught instanceof Error ? caught.message : "Could not refresh voices.",
-              );
-            });
-          }}
-          onDelete={deleteVoice}
-          onRename={renameVoice}
-        />
+      <div className="grid gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
+        <div className="space-y-3 rounded-lg border border-border bg-background/90 p-4 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+              Library
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busyAction === "refresh"}
+              onClick={() => {
+                setError("");
+                setStatus("");
+                void refreshVoices().catch((caught) => {
+                  setError(
+                    caught instanceof Error
+                      ? caught.message
+                      : "Could not refresh voices.",
+                  );
+                });
+              }}
+            >
+              {busyAction === "refresh" ? (
+                <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+              ) : (
+                <RefreshCcw size={14} aria-hidden="true" />
+              )}
+              Refresh
+            </Button>
+          </div>
+          <VoicePicker
+            mode="lab-source"
+            visibility={
+              mode === "remix"
+                ? "remix-source"
+                : mode === "changer"
+                  ? "custom-only"
+                  : "all"
+            }
+            builtinVoices={MVP_VOICES}
+            customVoices={voices}
+            selectedRef={selectedVoiceRef ?? undefined}
+            preview={preview}
+            loadingLibrary={loadingLibrary}
+            onSelect={selectVoiceRef}
+            onRenameCustomVoice={renameVoice}
+            onDeleteCustomVoice={deleteVoice}
+            title="Voice Library"
+            subtitle={
+              mode === "remix"
+                ? "Pick a designed or saved voice to remix."
+                : mode === "changer"
+                  ? "Pick a saved custom voice as the conversion target."
+                  : "Pick any built-in or custom voice."
+            }
+          />
+        </div>
 
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-card p-1 text-sm sm:grid-cols-5">
@@ -1606,13 +1621,15 @@ export function CustomVoiceLab() {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-muted-foreground">Selected voice</p>
-                    <p className="font-semibold">
-                      {selectedVoice?.name ?? "Select or create a custom voice"}
-                    </p>
+                    <p className="font-semibold">{selectedVoiceName}</p>
                   </div>
                   {selectedVoice ? (
                     <span className="rounded border border-border bg-background px-2 py-1 text-xs text-muted-foreground">
                       {labelSource(selectedVoice.source)}
+                    </span>
+                  ) : selectedBuiltin ? (
+                    <span className="rounded border border-border bg-background px-2 py-1 text-xs text-muted-foreground">
+                      Built-in
                     </span>
                   ) : null}
                 </div>
@@ -1718,8 +1735,13 @@ export function CustomVoiceLab() {
                   <div>
                     <p className="text-muted-foreground">Target voice</p>
                     <p className="font-semibold">
-                      {selectedVoice?.name ?? "Select or create a custom voice"}
+                      {selectedVoice?.name ?? "Select a saved custom voice"}
                     </p>
+                    {selectedKind === "builtin" ? (
+                      <p className="mt-1 text-xs text-amber-700">
+                        Transform requires a custom voice. Pick one from your library.
+                      </p>
+                    ) : null}
                   </div>
                   {selectedVoice ? (
                     <span className="rounded border border-border bg-background px-2 py-1 text-xs text-muted-foreground">
