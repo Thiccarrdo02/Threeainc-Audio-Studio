@@ -76,6 +76,7 @@ interface UnifiedVoice {
   language?: string;
   useCase?: string;
   tones: string[];
+  voiceIdLabel?: string;
   source: "builtin" | CustomVoiceSource;
   /** True if a preview URL is available to play. */
   previewable: boolean;
@@ -180,10 +181,11 @@ function unifyBuiltin(voice: Voice): UnifiedVoice {
     gender: voice.gender,
     accent: voice.accent,
     language: "Multilingual",
-    useCase: undefined,
+    useCase: voice.useCase,
     tones: voice.tones,
     source: "builtin",
     previewable: true,
+    voiceIdLabel: voice.id,
     builtin: voice,
   };
 }
@@ -296,12 +298,18 @@ function VoiceCard({
             ) : null}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            {voice.useCase ? <VoiceBadge>{voice.useCase}</VoiceBadge> : null}
             {voice.gender ? <VoiceBadge>{voice.gender}</VoiceBadge> : null}
             {primaryAccent ? (
               <VoiceBadge tone="accent">{primaryAccent}</VoiceBadge>
             ) : null}
             {sourceLabel ? <VoiceBadge tone="source">{sourceLabel}</VoiceBadge> : null}
           </div>
+          {voice.voiceIdLabel ? (
+            <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
+              Voice ID {voice.voiceIdLabel}
+            </p>
+          ) : null}
           <p className="mt-1.5 line-clamp-2 text-xs text-muted-foreground">
             {voice.description}
           </p>
@@ -513,6 +521,7 @@ export function VoicePicker({
   const allTones = useMemo(() => {
     const set = new Set<string>();
     for (const voice of activeList) {
+      if (voice.useCase) set.add(voice.useCase);
       voice.tones.forEach((tone) => set.add(tone));
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b));
@@ -560,6 +569,7 @@ export function VoicePicker({
         !normalizedQuery ||
         [
           voice.displayName,
+          voice.ref.id,
           voice.description,
           voice.gender ?? "",
           voice.accent ?? "",
@@ -578,7 +588,10 @@ export function VoicePicker({
         languageFilter === "all" || voice.language === languageFilter;
       const matchesAccent =
         accentFilter === "all" || voice.accent === accentFilter;
-      const matchesTone = toneFilter === "all" || voice.tones.includes(toneFilter);
+      const matchesTone =
+        toneFilter === "all" ||
+        voice.useCase === toneFilter ||
+        voice.tones.includes(toneFilter);
       return matchesQuery && matchesGender && matchesLanguage && matchesAccent && matchesTone;
     });
   }, [activeList, query, genderFilter, languageFilter, accentFilter, toneFilter]);
@@ -734,7 +747,7 @@ export function VoicePicker({
             className="h-9 w-full rounded-md border border-border bg-card pl-8 pr-3 text-sm outline-none transition placeholder:text-muted-foreground/70 focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder={tab === "builtin" ? "Search by name, accent, tone" : "Search your voices"}
+            placeholder={tab === "builtin" ? "Search by accent, style, use case" : "Search your voices"}
             aria-label="Search voices"
           />
         </div>
@@ -783,10 +796,10 @@ export function VoicePicker({
             className="h-8 min-w-0 rounded-md border border-border bg-card px-2 text-xs outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
             value={toneFilter}
             onChange={(event) => setToneFilter(event.target.value)}
-            aria-label="Filter by tone"
+            aria-label="Filter by style"
             disabled={allTones.length === 0}
           >
-            <option value="all">All tones</option>
+            <option value="all">All styles</option>
             {allTones.map((tone) => (
               <option key={tone} value={tone}>
                 {tone}

@@ -101,6 +101,9 @@ test("core MVP configuration remains intact", async () => {
   assert.match(pricing, /MINIMUM_THREEZINC_CREDITS\s*=\s*0\.5/);
   assert.match(studio, /accentStrength:\s*45/);
   assert.ok(studio.includes("Accent Strength"), "accent strength control missing");
+  assert.ok(studio.includes("Delivery Style"), "delivery style framing missing");
+  assert.ok(studio.includes("Advanced Controls"), "advanced controls disclosure missing");
+  assert.ok(studio.includes("Emotion Tags"), "emotion tags label missing");
   assert.ok(studio.includes("addFallbackExpression"), "auto-expression fallback missing");
 });
 
@@ -193,6 +196,8 @@ test("storage and provider boundaries are documented in code", async () => {
   assert.match(picker, /Built-in/);
   assert.match(picker, /Custom/);
   assert.match(picker, /Voice Library/);
+  assert.match(picker, /All styles/);
+  assert.match(picker, /Voice ID/);
   // Provider/engine names must not surface to end-users. The lower-case
   // string "elevenlabs" remains as a type literal in code (not user-facing).
   assert.equal(picker.includes("Gemini"), false, "voice picker must not surface Gemini name");

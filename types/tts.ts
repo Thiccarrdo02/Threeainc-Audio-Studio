@@ -14,6 +14,7 @@ export interface Voice {
   displayName: string;
   gender: VoiceGender;
   accent?: string;
+  useCase?: string;
   description: string;
   tones: string[];
   previewText: string;

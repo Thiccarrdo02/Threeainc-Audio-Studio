@@ -428,17 +428,25 @@ function CreditEstimator({ prompt }: { prompt: string }) {
 
 function TagInserter({ onInsert }: { onInsert: (tag: string) => void }) {
   return (
-    <div className="flex flex-wrap gap-1.5">
-      {EXPRESSIVE_TAGS.map((tag) => (
-        <button
-          key={tag}
-          type="button"
-          className="rounded border border-border bg-background px-2 py-1 text-xs text-muted-foreground transition hover:border-theme-primary hover:text-theme-primary"
-          onClick={() => onInsert(tag)}
-        >
-          {tag}
-        </button>
-      ))}
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-3">
+        <FieldLabel>Emotion Tags</FieldLabel>
+        <span className="text-xs text-muted-foreground">
+          Per-line emotion and pauses
+        </span>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {EXPRESSIVE_TAGS.map((tag) => (
+          <button
+            key={tag}
+            type="button"
+            className="rounded border border-border bg-background px-2 py-1 text-xs text-muted-foreground transition hover:border-theme-primary hover:text-theme-primary"
+            onClick={() => onInsert(tag)}
+          >
+            {tag}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -565,6 +573,8 @@ function StudioControls({
   speakerIssues: string[];
   onChange: (state: StudioState) => void;
 }) {
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
   return (
     <div className="space-y-5">
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_220px]">
@@ -631,11 +641,14 @@ function StudioControls({
       <section className="space-y-3 rounded-lg border border-border bg-card p-3">
         <div className="flex items-center gap-2">
           <SlidersHorizontal size={15} className="text-theme-primary" aria-hidden="true" />
-          <FieldLabel>Voice Controls</FieldLabel>
+          <FieldLabel>Delivery Style</FieldLabel>
         </div>
+        <p className="text-xs text-muted-foreground">
+          Voice selection fixes the speaker identity. These settings guide the performance.
+        </p>
         <div className="grid gap-3 sm:grid-cols-3">
           <div className="space-y-1.5">
-            <FieldLabel>Accent</FieldLabel>
+            <FieldLabel>Accent Direction</FieldLabel>
             <select
               className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
               value={state.accentPreset}
@@ -652,7 +665,7 @@ function StudioControls({
             </select>
           </div>
           <div className="space-y-1.5">
-            <FieldLabel>Tone</FieldLabel>
+            <FieldLabel>Voice Personality</FieldLabel>
             <select
               className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
               value={state.tonePreset}
@@ -686,65 +699,88 @@ function StudioControls({
             </select>
           </div>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between gap-3">
-              <FieldLabel>Accent Strength</FieldLabel>
-              <span className="text-xs font-medium text-muted-foreground">
-                {accentStrengthLabel(state.accentStrength)} - {state.accentStrength}%
-              </span>
+
+        <div className="rounded-md border border-border bg-background/70">
+          <button
+            type="button"
+            className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm font-medium"
+            onClick={() => setShowAdvanced((current) => !current)}
+            aria-expanded={showAdvanced}
+          >
+            <span>Advanced Controls</span>
+            <span className="text-xs text-muted-foreground">
+              {showAdvanced ? "Hide" : "Show"}
+            </span>
+          </button>
+          {showAdvanced ? (
+            <div className="space-y-3 border-t border-border px-3 py-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <FieldLabel>Accent Strength</FieldLabel>
+                    <span className="text-xs font-medium text-muted-foreground">
+                      {accentStrengthLabel(state.accentStrength)} - {state.accentStrength}%
+                    </span>
+                  </div>
+                  <input
+                    className="w-full accent-[#3353FE]"
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={state.accentStrength}
+                    onChange={(event) =>
+                      onChange({
+                        ...state,
+                        accentStrength: Number(event.target.value),
+                      })
+                    }
+                    aria-label="Accent strength"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Higher values make the selected accent more noticeable.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <FieldLabel>Creativity</FieldLabel>
+                    <span className="text-xs font-medium text-muted-foreground">
+                      {state.temperature.toFixed(1)}
+                    </span>
+                  </div>
+                  <input
+                    className="w-full accent-[#3353FE]"
+                    type="range"
+                    min={0}
+                    max={2}
+                    step={0.1}
+                    value={state.temperature}
+                    onChange={(event) =>
+                      onChange({ ...state, temperature: Number(event.target.value) })
+                    }
+                    aria-label="Generation creativity"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Lower is steadier. Higher allows more delivery variation.
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <FieldLabel>Custom Direction</FieldLabel>
+                <input
+                  className="h-10 w-full rounded-md border border-border bg-card px-3 text-sm outline-none transition placeholder:text-muted-foreground/70 focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
+                  value={state.styleInstructions}
+                  onChange={(event) =>
+                    onChange({ ...state, styleInstructions: event.target.value })
+                  }
+                  placeholder="Example: Speak clearly, confident, slightly upbeat."
+                />
+              </div>
             </div>
-            <input
-              className="w-full accent-[#3353FE]"
-              type="range"
-              min={0}
-              max={100}
-              step={5}
-              value={state.accentStrength}
-              onChange={(event) =>
-                onChange({
-                  ...state,
-                  accentStrength: Number(event.target.value),
-                })
-              }
-              aria-label="Accent strength"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between gap-3">
-              <FieldLabel>Creativity</FieldLabel>
-              <span className="text-xs font-medium text-muted-foreground">
-                {state.temperature.toFixed(1)}
-              </span>
-            </div>
-            <input
-              className="w-full accent-[#3353FE]"
-              type="range"
-              min={0}
-              max={2}
-              step={0.1}
-              value={state.temperature}
-              onChange={(event) =>
-                onChange({ ...state, temperature: Number(event.target.value) })
-              }
-              aria-label="Generation creativity"
-            />
-          </div>
+          ) : null}
         </div>
       </section>
-
-      <section className="space-y-1.5">
-        <FieldLabel>Custom Direction</FieldLabel>
-        <input
-          className="h-10 w-full rounded-md border border-border bg-card px-3 text-sm outline-none transition placeholder:text-muted-foreground/70 focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
-          value={state.styleInstructions}
-          onChange={(event) =>
-            onChange({ ...state, styleInstructions: event.target.value })
-          }
-          placeholder="Example: Speak clearly, confident, slightly upbeat."
-        />
-      </section>
-
     </div>
   );
 }
@@ -915,6 +951,15 @@ function GenerationPanel({
   const languageLabel =
     MVP_LANGUAGES.find((language) => language.id === state.languageCode)?.label ??
     "Auto-detect";
+  const accentLabel =
+    ACCENT_PRESETS.find((preset) => preset.id === state.accentPreset)?.label ??
+    "Neutral";
+  const personalityLabel =
+    TONE_PRESETS.find((preset) => preset.id === state.tonePreset)?.label ??
+    "Natural";
+  const paceLabel =
+    PACE_PRESETS.find((preset) => preset.id === state.pacePreset)?.label ??
+    "Steady";
 
   const speakerSummary =
     state.mode === "multi"
@@ -954,8 +999,12 @@ function GenerationPanel({
         </div>
         <div className="flex items-start justify-between gap-3">
           <span className="text-muted-foreground">Output</span>
+          <span className="text-right font-medium">{state.outputFormat.toUpperCase()}</span>
+        </div>
+        <div className="flex items-start justify-between gap-3">
+          <span className="text-muted-foreground">Delivery</span>
           <span className="text-right font-medium">
-            {state.outputFormat.toUpperCase()} at creativity {state.temperature.toFixed(1)}
+            {accentLabel} | {personalityLabel} | {paceLabel}
           </span>
         </div>
         <div className="flex items-start justify-between gap-3">
@@ -1552,7 +1601,7 @@ export function TTSStudio() {
                 subtitle={
                   state.mode === "multi"
                     ? "Multi-speaker mode uses our built-in TTS voices."
-                    : "Pick any voice. Pin favourites, search the library, or design your own in Voice Lab."
+                    : "Choose the speaker identity first. Delivery settings and emotion tags shape the performance."
                 }
               />
               {libraryError ? (
