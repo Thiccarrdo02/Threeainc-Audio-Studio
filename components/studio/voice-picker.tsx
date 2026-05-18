@@ -76,7 +76,6 @@ interface UnifiedVoice {
   language?: string;
   useCase?: string;
   tones: string[];
-  voiceIdLabel?: string;
   source: "builtin" | CustomVoiceSource;
   /** True if a preview URL is available to play. */
   previewable: boolean;
@@ -172,7 +171,7 @@ function languageLabel(value?: string) {
 
 function unifyBuiltin(voice: Voice): UnifiedVoice {
   // Built-in voices always have static preview MP3s under /public/previews.
-  // They are multilingual — they pass any language filter.
+  // Catalog language/accent metadata is editorial and helps discovery.
   return {
     ref: { kind: "builtin", id: voice.id },
     displayName: voice.displayName,
@@ -180,12 +179,11 @@ function unifyBuiltin(voice: Voice): UnifiedVoice {
     internalProvider: "builtin",
     gender: voice.gender,
     accent: voice.accent,
-    language: "Multilingual",
+    language: voice.language ?? "Multilingual",
     useCase: voice.useCase,
     tones: voice.tones,
     source: "builtin",
     previewable: true,
-    voiceIdLabel: voice.id,
     builtin: voice,
   };
 }
@@ -266,6 +264,8 @@ function VoiceCard({
     voice.accent && voice.accent.toLowerCase() !== "multilingual"
       ? voice.accent
       : voice.language;
+  const languageBadge =
+    voice.language && voice.language !== primaryAccent ? voice.language : undefined;
   const tonesToShow = voice.tones.slice(0, 3);
   // In multi-speaker mode, only built-in voices can be assigned (the multi-
   // speaker engine doesn't accept custom voices).
@@ -299,17 +299,13 @@ function VoiceCard({
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
             {voice.useCase ? <VoiceBadge>{voice.useCase}</VoiceBadge> : null}
-            {voice.gender ? <VoiceBadge>{voice.gender}</VoiceBadge> : null}
+            {languageBadge ? <VoiceBadge>{languageBadge}</VoiceBadge> : null}
             {primaryAccent ? (
               <VoiceBadge tone="accent">{primaryAccent}</VoiceBadge>
             ) : null}
+            {voice.gender ? <VoiceBadge>{voice.gender}</VoiceBadge> : null}
             {sourceLabel ? <VoiceBadge tone="source">{sourceLabel}</VoiceBadge> : null}
           </div>
-          {voice.voiceIdLabel ? (
-            <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
-              Voice ID {voice.voiceIdLabel}
-            </p>
-          ) : null}
           <p className="mt-1.5 line-clamp-2 text-xs text-muted-foreground">
             {voice.description}
           </p>
@@ -535,7 +531,13 @@ export function VoicePicker({
       if (value.toLowerCase() === "multilingual") continue;
       set.add(value);
     }
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
+    const sorted = Array.from(set).sort((a, b) => a.localeCompare(b));
+    const indiaIndex = sorted.findIndex((value) => value === "India");
+    if (indiaIndex > 0) {
+      const [india] = sorted.splice(indiaIndex, 1);
+      sorted.unshift(india);
+    }
+    return sorted;
   }, [activeList]);
 
   const allLanguages = useMemo(() => {
@@ -747,7 +749,7 @@ export function VoicePicker({
             className="h-9 w-full rounded-md border border-border bg-card pl-8 pr-3 text-sm outline-none transition placeholder:text-muted-foreground/70 focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder={tab === "builtin" ? "Search by accent, style, use case" : "Search your voices"}
+            placeholder={tab === "builtin" ? "Search name, country, accent, style" : "Search your voices"}
             aria-label="Search voices"
           />
         </div>

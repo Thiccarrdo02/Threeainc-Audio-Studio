@@ -155,6 +155,7 @@ test("storage and provider boundaries are documented in code", async () => {
   const eleven = await read("lib/elevenlabs.ts");
   const customStore = await read("lib/local-custom-voices.ts");
   const customLab = await read("components/studio/custom-voice-lab.tsx");
+  const voices = await read("config/voices.ts");
 
   assert.match(store, /localStorage/);
   assert.match(route, /process\.env\.FAL_KEY/);
@@ -197,7 +198,9 @@ test("storage and provider boundaries are documented in code", async () => {
   assert.match(picker, /Custom/);
   assert.match(picker, /Voice Library/);
   assert.match(picker, /All styles/);
-  assert.match(picker, /Voice ID/);
+  assert.match(voices, /Meera - Indian Corporate Narrator/);
+  assert.match(voices, /Aarav - Indian Explainer Voice/);
+  assert.match(voices, /accent: "India"/);
   // Provider/engine names must not surface to end-users. The lower-case
   // string "elevenlabs" remains as a type literal in code (not user-facing).
   assert.equal(picker.includes("Gemini"), false, "voice picker must not surface Gemini name");
