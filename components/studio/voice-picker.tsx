@@ -205,6 +205,34 @@ function unifyCustom(voice: CustomVoiceProfile): UnifiedVoice {
   };
 }
 
+function isIndianLibraryVoice(voice: UnifiedVoice) {
+  const fields = [
+    voice.displayName,
+    voice.description,
+    voice.accent,
+    voice.language,
+    voice.useCase,
+    ...voice.tones,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    voice.source === "voice-library" &&
+    (fields.includes("hindi") ||
+      fields.includes("india") ||
+      fields.includes("indian") ||
+      fields.includes(" hi "))
+  );
+}
+
+function voiceSortScore(voice: UnifiedVoice) {
+  if (isIndianLibraryVoice(voice)) return 0;
+  if (voice.source === "voice-library") return 1;
+  return 2;
+}
+
 function VoiceBadge({
   children,
   tone = "default",
@@ -498,7 +526,11 @@ export function VoicePicker({
       seen.add(key);
       out.push(voice);
     }
-    return out;
+    return out.sort((a, b) => {
+      const score = voiceSortScore(a) - voiceSortScore(b);
+      if (score !== 0) return score;
+      return a.displayName.localeCompare(b.displayName);
+    });
   }, [builtinVoices, importedFromLibrary, mode]);
 
   const customUnified: UnifiedVoice[] = useMemo(() => {

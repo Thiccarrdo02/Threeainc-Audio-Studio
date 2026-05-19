@@ -156,6 +156,8 @@ test("storage and provider boundaries are documented in code", async () => {
   const customStore = await read("lib/local-custom-voices.ts");
   const customLab = await read("components/studio/custom-voice-lab.tsx");
   const voices = await read("config/voices.ts");
+  const sharedVoiceSeeds = await read("config/shared-voice-seeds.ts");
+  const sharedVoiceRoute = await read("app/api/custom-voices/library/route.ts");
 
   assert.match(store, /localStorage/);
   assert.match(route, /process\.env\.FAL_KEY/);
@@ -201,7 +203,14 @@ test("storage and provider boundaries are documented in code", async () => {
   assert.match(voices, /displayName: voice\.id/);
   assert.match(voices, /accent: "International"/);
   assert.match(voices, /language: "Multilingual"/);
+  assert.match(sharedVoiceSeeds, /Ranga - Powerful Brand Hindi Narrator/);
+  assert.ok(
+    (sharedVoiceSeeds.match(/voiceId/g) ?? []).length >= 50,
+    "seeded shared library should preserve the larger built-in library",
+  );
+  assert.match(sharedVoiceRoute, /SEEDED_SHARED_VOICES/);
   assert.match(picker, /Search name, country, accent, style/);
+  assert.match(picker, /isIndianLibraryVoice/);
   // Provider/engine names must not surface to end-users. The lower-case
   // string "elevenlabs" remains as a type literal in code (not user-facing).
   assert.equal(picker.includes("Gemini"), false, "voice picker must not surface Gemini name");

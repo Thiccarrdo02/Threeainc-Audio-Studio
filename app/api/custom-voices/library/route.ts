@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { SEEDED_SHARED_VOICES } from "@/config/shared-voice-seeds";
 import { listSharedVoices, type SharedVoiceSummary } from "@/lib/elevenlabs";
 import type { TTSApiError } from "@/types/tts";
 
@@ -86,7 +87,7 @@ async function fetchCuratedVoices(): Promise<SharedVoiceSummary[]> {
     if (merged.length >= TARGET_LIBRARY_VOICES) break;
   }
 
-  return merged.slice(0, TARGET_LIBRARY_VOICES);
+  return dedupe(merged, SEEDED_SHARED_VOICES).slice(0, TARGET_LIBRARY_VOICES);
 }
 
 export async function GET(request: Request) {
@@ -110,6 +111,17 @@ export async function GET(request: Request) {
     });
     return NextResponse.json(result);
   } catch (error) {
+    const url = new URL(request.url);
+    const isDefaultLoad =
+      !url.searchParams.get("search") &&
+      !url.searchParams.get("language") &&
+      !url.searchParams.get("pageSize");
+    if (isDefaultLoad) {
+      return NextResponse.json({
+        voices: SEEDED_SHARED_VOICES.slice(0, TARGET_LIBRARY_VOICES),
+        hasMore: false,
+      });
+    }
     return errorResponse(
       502,
       "VOICE_LIBRARY_SEARCH_FAILED",
