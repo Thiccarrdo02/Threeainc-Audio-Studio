@@ -198,9 +198,10 @@ test("storage and provider boundaries are documented in code", async () => {
   assert.match(picker, /Custom/);
   assert.match(picker, /Voice Library/);
   assert.match(picker, /All styles/);
-  assert.match(voices, /Meera - Indian Corporate Narrator/);
-  assert.match(voices, /Aarav - Indian Explainer Voice/);
-  assert.match(voices, /accent: "India"/);
+  assert.match(voices, /displayName: voice\.id/);
+  assert.match(voices, /accent: "International"/);
+  assert.match(voices, /language: "Multilingual"/);
+  assert.match(picker, /Search name, country, accent, style/);
   // Provider/engine names must not surface to end-users. The lower-case
   // string "elevenlabs" remains as a type literal in code (not user-facing).
   assert.equal(picker.includes("Gemini"), false, "voice picker must not surface Gemini name");

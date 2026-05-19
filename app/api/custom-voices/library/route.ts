@@ -13,9 +13,12 @@ function errorResponse(status: number, code: string, message: string) {
   return NextResponse.json(body, { status });
 }
 
-const CURATED_HINDI_BUDGET = 30;
-const INDIAN_ENGLISH_BUDGET = 8;
-const PER_LANGUAGE_BUDGET = 2;
+const TARGET_LIBRARY_VOICES = 60;
+const CURATED_HINDI_BUDGET = 35;
+const INDIAN_ENGLISH_BUDGET = 18;
+const INDIA_SEARCH_BUDGET = 18;
+const TRENDING_BUDGET = 100;
+const PER_LANGUAGE_BUDGET = 4;
 
 function languageKey(value?: string) {
   if (!value) return "unknown";
@@ -42,20 +45,23 @@ function dedupe(...lists: SharedVoiceSummary[][]): SharedVoiceSummary[] {
  * drown in (e.g.) American narrator voices.
  */
 async function fetchCuratedVoices(): Promise<SharedVoiceSummary[]> {
-  const [hindi, indianEnglish, trending] = await Promise.allSettled([
+  const [hindi, indianEnglish, indiaSearch, trending] = await Promise.allSettled([
     listSharedVoices({ search: "Hindi", pageSize: CURATED_HINDI_BUDGET }),
     listSharedVoices({ search: "Indian English", pageSize: INDIAN_ENGLISH_BUDGET }),
-    listSharedVoices({ pageSize: 80 }),
+    listSharedVoices({ search: "India", pageSize: INDIA_SEARCH_BUDGET }),
+    listSharedVoices({ pageSize: TRENDING_BUDGET }),
   ]);
 
   const hindiVoices = hindi.status === "fulfilled" ? hindi.value.voices : [];
   const indianVoices =
     indianEnglish.status === "fulfilled" ? indianEnglish.value.voices : [];
+  const indiaSearchVoices =
+    indiaSearch.status === "fulfilled" ? indiaSearch.value.voices : [];
   const trendingVoices =
     trending.status === "fulfilled" ? trending.value.voices : [];
 
   // Keep all Hindi + Indian English voices; cap other-language voices.
-  const merged = dedupe(hindiVoices, indianVoices);
+  const merged = dedupe(hindiVoices, indianVoices, indiaSearchVoices);
   const perLanguage = new Map<string, number>();
   // Seed counts so Hindi/Indian-English aren't accidentally capped further.
   for (const voice of merged) {
@@ -77,9 +83,10 @@ async function fetchCuratedVoices(): Promise<SharedVoiceSummary[]> {
       perLanguage.set(key, count + 1);
     }
     merged.push(voice);
+    if (merged.length >= TARGET_LIBRARY_VOICES) break;
   }
 
-  return merged;
+  return merged.slice(0, TARGET_LIBRARY_VOICES);
 }
 
 export async function GET(request: Request) {
