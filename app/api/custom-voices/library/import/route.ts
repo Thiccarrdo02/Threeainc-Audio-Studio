@@ -1,23 +1,15 @@
-import { NextResponse } from "next/server";
-
 import {
   addSharedVoiceToLibrary,
   voiceToStoredProfile,
 } from "@/lib/elevenlabs";
 import { upsertCustomVoice } from "@/lib/local-custom-voices";
-import type { TTSApiError } from "@/types/tts";
+import { getErrorMessage, jsonError } from "@/lib/api-utils";
+import { withRequestLogging } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-function errorResponse(status: number, code: string, message: string) {
-  const body: TTSApiError = {
-    error: { code, message, retryable: status >= 500 },
-  };
-  return NextResponse.json(body, { status });
-}
-
-export async function POST(request: Request) {
+async function handlePost(request: Request) {
   try {
     const body = (await request.json()) as Record<string, unknown>;
     const publicOwnerId = String(body.publicOwnerId ?? "").trim();
@@ -27,11 +19,11 @@ export async function POST(request: Request) {
     const previewUrl = String(body.previewUrl ?? "").trim();
 
     if (!publicOwnerId || !voiceId || !name) {
-      return errorResponse(
-        400,
-        "VOICE_LIBRARY_IMPORT_REQUIRED",
-        "Voice library owner, voice ID, and name are required.",
-      );
+      return jsonError({
+        status: 400,
+        code: "VOICE_LIBRARY_IMPORT_REQUIRED",
+        message: "Voice library owner, voice ID, and name are required.",
+      });
     }
 
     const created = await addSharedVoiceToLibrary({
@@ -56,12 +48,14 @@ export async function POST(request: Request) {
       previewUrl: previewUrl || undefined,
     });
 
-    return NextResponse.json({ voice: stored });
+    return Response.json({ voice: stored });
   } catch (error) {
-    return errorResponse(
-      502,
-      "VOICE_LIBRARY_IMPORT_FAILED",
-      error instanceof Error ? error.message : "Could not import voice.",
-    );
+    return jsonError({
+      status: 502,
+      code: "VOICE_LIBRARY_IMPORT_FAILED",
+      message: getErrorMessage(error, "Could not import voice."),
+    });
   }
 }
+
+export const POST = withRequestLogging(handlePost, "POST /api/custom-voices/library/import");

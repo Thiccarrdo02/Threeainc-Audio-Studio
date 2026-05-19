@@ -2,35 +2,49 @@
 
 import {
   AlertCircle,
-  Clock3,
-  Download,
   Mic2,
-  Pause,
-  Play,
-  RotateCcw,
   Save,
   SlidersHorizontal,
   Sparkles,
   UserRoundCheck,
-  Volume2,
   Wand2,
-  X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { EXPRESSIVE_TAGS } from "@/config/expressive-tags";
 import { CustomVoiceLab } from "@/components/studio/custom-voice-lab";
 import { VoicePicker } from "@/components/studio/voice-picker";
-import { LONG_SCRIPT_WARNING_CHARACTERS } from "@/config/limits";
+import {
+  LONG_SCRIPT_WARNING_CHARACTERS,
+  MAX_SCRIPT_TITLE_LENGTH,
+  MAX_VOICE_NAME_LENGTH,
+  STATUS_TOAST_DURATION_MS,
+} from "@/config/limits";
 import { MVP_LANGUAGES, toProviderLanguageCode } from "@/config/languages";
 import {
   ACCENT_PRESETS,
   PACE_PRESETS,
   TONE_PRESETS,
-  getPresetInstruction,
 } from "@/config/style-presets";
 import { MVP_VOICES } from "@/config/voices";
+import { AudioPlayer } from "@/components/studio/audio-player";
+import { LocalHistoryPanel } from "@/components/studio/local-history-panel";
+import {
+  accentStrengthLabel,
+  autoMarkupPrompt,
+  buildMultiSpeakerTemplate,
+  composeStyleInstructions,
+  getVoiceName,
+  isMvpSelected,
+  languageOptionLabel,
+  promptHasSpeakerPrefixes,
+  speakerButtonLabel,
+} from "@/components/studio/studio-helpers";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { PromptDialog } from "@/components/ui/prompt-dialog";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Toast } from "@/components/ui/toast";
 import { useAudioManager } from "@/hooks/use-audio-manager";
 import { useTTSGeneration } from "@/hooks/use-tts-generation";
 import { useVoicePreview } from "@/hooks/use-voice-preview";
@@ -40,7 +54,12 @@ import {
   estimatePromptCredits,
   formatCredits,
 } from "@/lib/cost";
-import { clientStore, makeLocalId } from "@/lib/client-store";
+import {
+  STORAGE_QUOTA_EVENT,
+  clientStore,
+  makeLocalId,
+} from "@/lib/client-store";
+import { friendlyError } from "@/lib/error-messages";
 import {
   libraryVoiceToProfile,
   mergeVoiceProfiles,
@@ -50,7 +69,6 @@ import {
 } from "@/lib/voice-utils";
 import type { CustomVoiceProfile } from "@/types/custom-voices";
 import type {
-  LanguageOption,
   LocalGeneration,
   LocalScript,
   Speaker,
@@ -106,203 +124,12 @@ async function fetchCustomVoiceLibrary() {
 }
 
 async function fetchSharedLibraryVoices(): Promise<SharedLibraryVoice[]> {
-  // No params → server returns the curated Hindi-heavy mix.
   const response = await fetch("/api/custom-voices/library");
   if (!response.ok) {
     throw new Error(await readRouteError(response));
   }
   const data = (await response.json()) as { voices: SharedLibraryVoice[] };
   return data.voices ?? [];
-}
-
-function clampAccentStrength(value: number) {
-  if (!Number.isFinite(value)) {
-    return defaultStudioState.accentStrength;
-  }
-
-  return Math.min(100, Math.max(0, value));
-}
-
-function accentStrengthLabel(value: number) {
-  const strength = clampAccentStrength(value);
-  if (strength <= 5) {
-    return "Neutral";
-  }
-  if (strength <= 30) {
-    return "Light";
-  }
-  if (strength <= 60) {
-    return "Balanced";
-  }
-  if (strength <= 85) {
-    return "Strong";
-  }
-  return "Very strong";
-}
-
-function getAccentStrengthInstruction(state: StudioState) {
-  const strength = clampAccentStrength(state.accentStrength);
-
-  if (state.accentPreset === "neutral" || strength <= 5) {
-    return "Keep regional accent influence very light and prioritize neutral, broadly understandable pronunciation.";
-  }
-
-  if (strength <= 30) {
-    return "Apply the selected accent subtly; avoid heavy regional pronunciation.";
-  }
-
-  if (strength <= 60) {
-    return "Apply the selected accent at a natural medium strength while keeping every word clear.";
-  }
-
-  if (strength <= 85) {
-    return "Use a clear, noticeable selected accent while preserving intelligibility.";
-  }
-
-  return "Use a strong selected accent, but keep speech clean, polished, and easy to understand.";
-}
-
-function composeStyleInstructions(state: StudioState) {
-  const presetInstructions = [
-    getPresetInstruction(ACCENT_PRESETS, state.accentPreset),
-    getAccentStrengthInstruction(state),
-    getPresetInstruction(TONE_PRESETS, state.tonePreset),
-    getPresetInstruction(PACE_PRESETS, state.pacePreset),
-  ];
-
-  return [...presetInstructions, state.styleInstructions.trim()]
-    .filter(Boolean)
-    .join(" ");
-}
-
-function languageOptionLabel(language: LanguageOption) {
-  if (language.id === "auto") {
-    return language.label;
-  }
-
-  return language.region === "India"
-    ? `India - ${language.label}`
-    : `${language.region ?? "Global"} - ${language.label}`;
-}
-
-function formatTime(seconds: number) {
-  if (!Number.isFinite(seconds) || seconds <= 0) {
-    return "0:00";
-  }
-
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
-}
-
-function getVoiceName(voiceId: string) {
-  return MVP_VOICES.find((voice) => voice.id === voiceId)?.displayName ?? voiceId;
-}
-
-function isMvpSelected(voiceId: string) {
-  return MVP_VOICES.some((voice) => voice.id === voiceId);
-}
-
-function speakerButtonLabel(speaker: Speaker, index: number) {
-  const alias = speaker.speaker_id || `Speaker${index + 1}`;
-  return `${alias} - ${getVoiceName(speaker.voice)}`;
-}
-
-function hasLeadingAudioTag(text: string) {
-  return /^\s*(?:[A-Za-z0-9]+:\s*)?\[[^\]]+\]/.test(text);
-}
-
-function addTagAfterSpeakerPrefix(line: string, tag: string) {
-  const match = line.match(/^(\s*[A-Za-z0-9]+:\s*)(.*)$/);
-  if (match) {
-    return `${match[1]}${tag} ${match[2].trimStart()}`;
-  }
-
-  return `${tag} ${line.trimStart()}`;
-}
-
-function autoMarkupLine(line: string) {
-  const trimmed = line.trim();
-  if (!trimmed) {
-    return line;
-  }
-
-  let next = line.replace(/\s*\.\.\.\s*/g, " [long pause] ");
-  if (hasLeadingAudioTag(next)) {
-    return next;
-  }
-
-  const lower = trimmed.toLowerCase();
-  const isLoud = /(!{2,}|urgent|now|stop|look out|watch out)/i.test(trimmed);
-  const isLaughing = /(haha|lol|funny|joke|laugh|hilarious|smiled?)/i.test(trimmed);
-  const isSigh = /(sorry|unfortunately|tired|exhausted|sad|miss you|bad news)/i.test(trimmed);
-  const isWhisper = /(secret|quietly|keep this between us|listen closely)/i.test(trimmed);
-  const isSarcastic = /(yeah right|as if|obviously|sure, because)/i.test(lower);
-  const isHesitation = /^(?:[A-Za-z0-9]+:\s*)?(well|um|uh|hmm|actually)\b/i.test(trimmed);
-  const isCheerful = /(great news|welcome|congrats|congratulations|happy|delighted)/i.test(trimmed);
-  const isDramatic = /(final chance|never forget|betray|betrayed|destiny|at last)/i.test(trimmed);
-  const isFast = /(quickly|hurry|as fast as|right away|immediately)/i.test(trimmed);
-
-  if (isSarcastic) {
-    next = addTagAfterSpeakerPrefix(next, "[sarcasm]");
-  } else if (isWhisper) {
-    next = addTagAfterSpeakerPrefix(next, "[whispering]");
-  } else if (isLoud) {
-    next = addTagAfterSpeakerPrefix(next, "[shouting]");
-  } else if (isLaughing) {
-    next = addTagAfterSpeakerPrefix(next, "[laughing]");
-  } else if (isSigh) {
-    next = addTagAfterSpeakerPrefix(next, "[sigh]");
-  } else if (isHesitation) {
-    next = addTagAfterSpeakerPrefix(next, "[uhm]");
-  } else if (isCheerful) {
-    next = addTagAfterSpeakerPrefix(next, "[cheerfully]");
-  } else if (isDramatic) {
-    next = addTagAfterSpeakerPrefix(next, "[dramatic]");
-  } else if (isFast) {
-    next = addTagAfterSpeakerPrefix(next, "[fast]");
-  }
-
-  return next.replace(/\s{2,}/g, " ").trimEnd();
-}
-
-function addFallbackExpression(prompt: string) {
-  const withSentencePauses = prompt.replace(
-    /([.!?])\s+(?=(?:[A-Za-z0-9]+:\s*)?["'A-Za-z0-9])/g,
-    "$1 [short pause] ",
-  );
-
-  if (withSentencePauses !== prompt) {
-    return withSentencePauses;
-  }
-
-  const lines = prompt.split("\n");
-  const firstMarkableLine = lines.findIndex(
-    (line) => line.trim() && !hasLeadingAudioTag(line),
-  );
-
-  if (firstMarkableLine === -1) {
-    return prompt;
-  }
-
-  lines[firstMarkableLine] = addTagAfterSpeakerPrefix(
-    lines[firstMarkableLine],
-    "[cheerfully]",
-  );
-  return lines.join("\n");
-}
-
-function autoMarkupPrompt(prompt: string) {
-  const markedPrompt = prompt
-    .split("\n")
-    .map((line) => autoMarkupLine(line))
-    .join("\n");
-
-  if (markedPrompt !== prompt) {
-    return markedPrompt;
-  }
-
-  return addFallbackExpression(prompt);
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
@@ -332,7 +159,7 @@ function TopBar({
     <header className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur">
       <div className="mx-auto flex min-h-14 max-w-7xl flex-wrap items-center justify-between gap-2 px-4 py-2 sm:gap-3 sm:px-6">
         <div className="flex items-center gap-3">
-          <div className="flex size-8 items-center justify-center rounded-lg bg-theme-gradient-button text-white shadow-[0_4px_16px_rgba(31,76,238,0.25)]">
+          <div className="flex size-8 items-center justify-center rounded-lg bg-theme-gradient-button text-white shadow-[0_4px_16px_var(--theme-primary-shadow-md)]">
             <Mic2 size={17} aria-hidden="true" />
           </div>
           <div>
@@ -347,9 +174,9 @@ function TopBar({
 
         <div className="order-3 flex w-full rounded-md border border-border bg-card p-0.5 sm:order-none sm:w-auto">
           <button
-            className={`flex flex-1 items-center justify-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium sm:flex-none ${
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition sm:flex-none ${
               workspace === "tts"
-                ? "bg-theme-primary text-white shadow-[0_2px_10px_rgba(31,76,238,0.20)]"
+                ? "bg-theme-primary text-white shadow-[0_2px_10px_var(--theme-primary-shadow-sm)]"
                 : "text-muted-foreground hover:text-foreground"
             }`}
             type="button"
@@ -360,9 +187,9 @@ function TopBar({
             Studio
           </button>
           <button
-            className={`flex flex-1 items-center justify-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium sm:flex-none ${
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition sm:flex-none ${
               workspace === "voice-cloning"
-                ? "bg-theme-primary text-white shadow-[0_2px_10px_rgba(31,76,238,0.20)]"
+                ? "bg-theme-primary text-white shadow-[0_2px_10px_var(--theme-primary-shadow-sm)]"
                 : "text-muted-foreground hover:text-foreground"
             }`}
             type="button"
@@ -381,10 +208,10 @@ function TopBar({
           <div className="flex items-center gap-2">
             <div className="flex rounded-md border border-border bg-card p-0.5">
               <button
-                className={`rounded px-3 py-1 text-xs font-medium ${
+                className={`rounded px-3 py-1 text-xs font-medium transition ${
                   mode === "single"
                     ? "bg-theme-primary text-white"
-                    : "text-muted-foreground"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
                 type="button"
                 onClick={() => onModeChange("single")}
@@ -392,10 +219,10 @@ function TopBar({
                 Single Voice
               </button>
               <button
-                className={`rounded px-3 py-1 text-xs font-medium ${
+                className={`rounded px-3 py-1 text-xs font-medium transition ${
                   mode === "multi"
                     ? "bg-theme-primary text-white"
-                    : "text-muted-foreground"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
                 type="button"
                 onClick={() => onModeChange("multi")}
@@ -403,7 +230,7 @@ function TopBar({
                 Multi-Speaker
               </button>
             </div>
-            <div className="rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
+            <div className="rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground tabular-nums">
               {characterCount.toLocaleString()} chars
             </div>
           </div>
@@ -451,16 +278,23 @@ function TagInserter({ onInsert }: { onInsert: (tag: string) => void }) {
   );
 }
 
+interface ExpressionPreview {
+  before: string;
+  after: string;
+}
+
 function ScriptEditor({
   prompt,
   mode,
   speakers,
   onPromptChange,
+  onRequestExpressionPreview,
 }: {
   prompt: string;
   mode: StudioState["mode"];
   speakers: Speaker[];
   onPromptChange: (value: string) => void;
+  onRequestExpressionPreview: (preview: ExpressionPreview | null) => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [autoExpressionStatus, setAutoExpressionStatus] = useState("");
@@ -497,13 +331,12 @@ function ScriptEditor({
 
   const autoAddExpressions = useCallback(() => {
     const nextPrompt = autoMarkupPrompt(prompt);
-    onPromptChange(nextPrompt);
-    setAutoExpressionStatus(
-      nextPrompt === prompt
-        ? "Script already has expression cues."
-        : "Expression cues added.",
-    );
-  }, [onPromptChange, prompt]);
+    if (nextPrompt === prompt) {
+      setAutoExpressionStatus("Script already has expression cues.");
+      return;
+    }
+    onRequestExpressionPreview({ before: prompt, after: nextPrompt });
+  }, [onRequestExpressionPreview, prompt]);
 
   const handlePromptChange = useCallback((value: string) => {
     setAutoExpressionStatus("");
@@ -522,7 +355,7 @@ function ScriptEditor({
             <button
               key={`${speaker.speaker_id}-${index}`}
               type="button"
-              className="inline-flex items-center gap-1 rounded border border-theme-primary bg-[rgba(51,83,254,0.08)] px-2 py-1 text-xs font-medium text-theme-primary transition hover:bg-[rgba(51,83,254,0.14)]"
+              className="inline-flex items-center gap-1 rounded border border-theme-primary bg-[var(--theme-primary-light)] px-2 py-1 text-xs font-medium text-theme-primary transition hover:bg-[var(--theme-primary-medium)]"
               onClick={() => insertSpeaker(speaker)}
             >
               <UserRoundCheck size={12} aria-hidden="true" />
@@ -536,7 +369,11 @@ function ScriptEditor({
         className="min-h-[260px] w-full resize-y rounded-lg border border-border bg-card px-3 py-3 text-sm leading-6 outline-none transition placeholder:text-muted-foreground/70 focus:border-theme-primary focus:ring-3 focus:ring-theme-accent/20"
         value={prompt}
         onChange={(event) => handlePromptChange(event.target.value)}
-        placeholder="Write the spoken script here. Add expressive tags like [excited] or [short pause] where they should influence delivery."
+        placeholder={
+          mode === "multi"
+            ? "Write a dialogue using the speaker chips above (e.g. Speaker1: Hello there)."
+            : "Write the spoken script here. Add expressive tags like [excited] or [short pause] where they should influence delivery."
+        }
       />
       {prompt.length > LONG_SCRIPT_WARNING_CHARACTERS ? (
         <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
@@ -556,7 +393,7 @@ function ScriptEditor({
           Auto-add expressions
         </Button>
         <span className="text-xs text-muted-foreground">
-          {autoExpressionStatus || "Adds reliable local audio tags from the script context."}
+          {autoExpressionStatus || "We preview every change before applying it."}
         </span>
       </div>
       <TagInserter onInsert={insertTag} />
@@ -568,10 +405,14 @@ function StudioControls({
   state,
   speakerIssues,
   onChange,
+  onRequestExpressionPreview,
+  onInsertTemplate,
 }: {
   state: StudioState;
   speakerIssues: string[];
   onChange: (state: StudioState) => void;
+  onRequestExpressionPreview: (preview: ExpressionPreview | null) => void;
+  onInsertTemplate: () => void;
 }) {
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -618,8 +459,18 @@ function StudioControls({
       </div>
 
       {state.mode === "multi" ? (
-        <div className="rounded-lg border border-theme-primary bg-[rgba(51,83,254,0.08)] px-3 py-2 text-sm font-medium text-theme-primary">
-          Multi-speaker mode uses exactly two speakers.
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-theme-primary bg-[var(--theme-primary-light)] px-3 py-2 text-sm font-medium text-theme-primary">
+          <span>Multi-speaker mode uses exactly two speakers.</span>
+          {!state.prompt.trim() ? (
+            <Button
+              type="button"
+              size="xs"
+              variant="outline"
+              onClick={onInsertTemplate}
+            >
+              Insert example
+            </Button>
+          ) : null}
         </div>
       ) : null}
 
@@ -636,6 +487,7 @@ function StudioControls({
         mode={state.mode}
         speakers={state.speakers}
         onPromptChange={(prompt) => onChange({ ...state, prompt })}
+        onRequestExpressionPreview={onRequestExpressionPreview}
       />
 
       <section className="space-y-3 rounded-lg border border-border bg-card p-3">
@@ -718,12 +570,12 @@ function StudioControls({
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between gap-3">
                     <FieldLabel>Accent Strength</FieldLabel>
-                    <span className="text-xs font-medium text-muted-foreground">
-                      {accentStrengthLabel(state.accentStrength)} - {state.accentStrength}%
+                    <span className="text-xs font-medium text-muted-foreground tabular-nums">
+                      {accentStrengthLabel(state.accentStrength)} · {state.accentStrength}%
                     </span>
                   </div>
                   <input
-                    className="w-full accent-[#3353FE]"
+                    className="w-full accent-[var(--theme-primary)]"
                     type="range"
                     min={0}
                     max={100}
@@ -744,12 +596,12 @@ function StudioControls({
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between gap-3">
                     <FieldLabel>Creativity</FieldLabel>
-                    <span className="text-xs font-medium text-muted-foreground">
+                    <span className="text-xs font-medium text-muted-foreground tabular-nums">
                       {state.temperature.toFixed(1)}
                     </span>
                   </div>
                   <input
-                    className="w-full accent-[#3353FE]"
+                    className="w-full accent-[var(--theme-primary)]"
                     type="range"
                     min={0}
                     max={2}
@@ -853,99 +705,34 @@ function MultiSpeakerBuilder({
   );
 }
 
-function LocalHistoryPanel({
-  generations,
-  scripts,
-  onLoadScript,
-  onLoadGeneration,
-}: {
-  generations: LocalGeneration[];
-  scripts: LocalScript[];
-  onLoadScript: (script: LocalScript) => void;
-  onLoadGeneration: (generation: LocalGeneration) => void;
-}) {
-  return (
-    <section className="space-y-3">
-      <div>
-        <h2 className="font-heading text-lg font-semibold">Local History</h2>
-        <p className="text-xs text-muted-foreground">
-          Saved on this browser as remote audio URLs and metadata only.
-        </p>
-      </div>
-
-      <div className="space-y-2">
-        {generations.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
-            No generations yet.
-          </div>
-        ) : (
-          generations.slice(0, 5).map((generation) => (
-            <button
-              key={generation.id}
-              type="button"
-              className="w-full rounded-lg border border-border bg-card px-3 py-2 text-left transition hover:border-theme-primary"
-              onClick={() => onLoadGeneration(generation)}
-            >
-              <p className="line-clamp-1 text-sm font-medium">
-                {generation.prompt}
-              </p>
-              <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                <Clock3 size={12} aria-hidden="true" />
-                {new Date(generation.createdAt).toLocaleString()}
-              </p>
-            </button>
-          ))
-        )}
-      </div>
-
-      <div className="space-y-2">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-          Saved scripts
-        </p>
-        {scripts.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
-            No saved scripts.
-          </div>
-        ) : (
-          scripts.slice(0, 5).map((script) => (
-            <button
-              key={script.id}
-              type="button"
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-left text-sm transition hover:border-theme-primary"
-              onClick={() => onLoadScript(script)}
-            >
-              {script.title}
-            </button>
-          ))
-        )}
-      </div>
-    </section>
-  );
-}
-
 function GenerationPanel({
   state,
   selectedVoiceName,
   selectedVoiceReady,
   speakerIssues,
+  promptValidationIssue,
   generationError,
   isGenerating,
   onGenerate,
   onSaveScript,
+  onDismissError,
 }: {
   state: StudioState;
   selectedVoiceName: string;
   selectedVoiceReady: boolean;
   speakerIssues: string[];
+  promptValidationIssue?: string;
   generationError?: { code: string; message: string; retryable: boolean };
   isGenerating: boolean;
   onGenerate: () => void;
   onSaveScript: () => void;
+  onDismissError: () => void;
 }) {
   const canGenerate =
     state.prompt.trim().length > 0 &&
     !isGenerating &&
     speakerIssues.length === 0 &&
+    !promptValidationIssue &&
     selectedVoiceReady;
   const characterCount = state.prompt.trim().length;
   const languageLabel =
@@ -979,6 +766,8 @@ function GenerationPanel({
         )
       : estimatePromptCredits(state.prompt);
 
+  const friendly = generationError ? friendlyError(generationError) : null;
+
   return (
     <section className="space-y-3">
       <div>
@@ -1009,21 +798,31 @@ function GenerationPanel({
         </div>
         <div className="flex items-start justify-between gap-3">
           <span className="text-muted-foreground">Credits</span>
-          <span className="text-right font-medium">
-            {characterCount.toLocaleString()} chars -{" "}
-            {formatCredits(credits)}
+          <span className="text-right font-medium tabular-nums">
+            {characterCount.toLocaleString()} chars · {formatCredits(credits)}
           </span>
         </div>
       </div>
 
-      {generationError ? (
+      {friendly ? (
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-800">
           <div className="flex items-start gap-2">
-            <AlertCircle size={16} className="mt-0.5" aria-hidden="true" />
-            <div>
-              <p className="font-semibold">{generationError.code}</p>
-              <p>{generationError.message}</p>
+            <AlertCircle size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">{friendly.title}</p>
+              <p>{friendly.detail}</p>
+              <p className="mt-0.5 text-[10px] uppercase tracking-wide text-red-700/70">
+                {generationError?.code}
+              </p>
             </div>
+            <button
+              type="button"
+              aria-label="Dismiss error"
+              className="rounded p-0.5 text-red-700 transition hover:bg-red-100"
+              onClick={onDismissError}
+            >
+              ×
+            </button>
           </div>
         </div>
       ) : null}
@@ -1033,7 +832,7 @@ function GenerationPanel({
           type="button"
           disabled={!canGenerate}
           onClick={onGenerate}
-          className="w-full bg-theme-gradient-button text-white shadow-[0_4px_16px_rgba(31,76,238,0.22)] hover:brightness-105"
+          className="w-full bg-theme-gradient-button text-white shadow-[0_4px_16px_var(--theme-primary-glow)] hover:brightness-105"
         >
           {isGenerating ? "Generating..." : "Generate Audio"}
         </Button>
@@ -1043,8 +842,13 @@ function GenerationPanel({
         </Button>
         {!state.prompt.trim() ? (
           <span className="text-xs text-muted-foreground">
-            Add a script to enable generation.
+            {state.mode === "multi"
+              ? "Tap “Insert example” above to start a dialogue, or use the speaker chips."
+              : "Add a script to enable generation."}
           </span>
+        ) : null}
+        {state.prompt.trim() && promptValidationIssue ? (
+          <span className="text-xs text-amber-700">{promptValidationIssue}</span>
         ) : null}
         {!selectedVoiceReady ? (
           <span className="text-xs text-muted-foreground">
@@ -1059,106 +863,12 @@ function GenerationPanel({
   );
 }
 
-function AudioPlayer({
-  generation,
-  audio,
-  onRegenerate,
-  onClose,
-}: {
-  generation: LocalGeneration;
-  audio: ReturnType<typeof useAudioManager>;
-  onRegenerate: () => void;
-  onClose: () => void;
-}) {
-  const source = {
-    id: `result:${generation.id}`,
-    kind: "result" as const,
-    url: generation.audioUrl,
-    label: generation.fileName ?? "Generated audio",
-  };
-  const isActive = audio.state.activeId === source.id;
-  const isPlaying = isActive && audio.state.isPlaying;
-  const duration = audio.state.duration || 0;
+interface RenamingVoiceState {
+  voice: CustomVoiceProfile;
+}
 
-  return (
-    <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 px-4 py-3 backdrop-blur">
-      <div className="mx-auto flex max-w-7xl flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="flex min-w-0 flex-1 items-center gap-3">
-          <Button
-            type="button"
-            size="icon"
-            className="bg-theme-primary text-white hover:bg-theme-primary-hover"
-            onClick={() => audio.toggle(source)}
-            aria-label={isPlaying ? "Pause generated audio" : "Play generated audio"}
-          >
-            {isPlaying ? <Pause size={16} /> : <Play size={16} />}
-          </Button>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold">
-              {generation.fileName ?? "Generated speech"}
-            </p>
-            <div className="flex items-center gap-2">
-              <span className="w-10 text-xs text-muted-foreground">
-                {formatTime(isActive ? audio.state.currentTime : 0)}
-              </span>
-              <input
-                className="w-full accent-[#3353FE]"
-                type="range"
-                min={0}
-                max={duration || 0}
-                step={0.1}
-                value={isActive ? audio.state.currentTime : 0}
-                onChange={(event) => audio.seek(Number(event.target.value))}
-              />
-              <span className="w-10 text-xs text-muted-foreground">
-                {formatTime(duration)}
-              </span>
-            </div>
-            {isActive && audio.state.error ? (
-              <p className="text-xs text-red-700">{audio.state.error}</p>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Volume2 size={15} className="text-muted-foreground" aria-hidden="true" />
-          <input
-            className="w-20 accent-[#3353FE]"
-            type="range"
-            min={0}
-            max={1}
-            step={0.05}
-            value={audio.state.volume}
-            onChange={(event) => audio.setVolume(Number(event.target.value))}
-            aria-label="Audio volume"
-          />
-          <a
-            className="inline-flex h-7 items-center justify-center gap-1 rounded-md border border-border bg-background px-2.5 text-[0.8rem] font-medium transition hover:bg-muted"
-            href={generation.audioUrl}
-            download={generation.fileName ?? "threezinc-studio-audio.mp3"}
-            target="_blank"
-            rel="noreferrer"
-          >
-            <Download size={14} aria-hidden="true" />
-            Download
-          </a>
-          <Button type="button" variant="outline" size="sm" onClick={onRegenerate}>
-            <RotateCcw size={14} aria-hidden="true" />
-            Regenerate
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            onClick={onClose}
-            aria-label="Close audio player"
-          >
-            <X size={14} aria-hidden="true" />
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
+interface ConfirmDeleteState {
+  voice: CustomVoiceProfile;
 }
 
 export function TTSStudio() {
@@ -1170,18 +880,22 @@ export function TTSStudio() {
   const [activeGeneration, setActiveGeneration] = useState<LocalGeneration | undefined>();
   const [savedCustomVoices, setSavedCustomVoices] = useState<CustomVoiceProfile[]>([]);
   const [libraryVoices, setLibraryVoices] = useState<CustomVoiceProfile[]>([]);
-  // Initialise loading=true so the indicator shows during the first paint
-  // without us having to call setState synchronously inside the mount effect.
   const [loadingLibrary, setLoadingLibrary] = useState(true);
-  const [statusToast, setStatusToast] = useState("");
+  const [statusToast, setStatusToast] = useState<{
+    message: string;
+    tone: "success" | "info" | "error";
+  } | null>(null);
   const [libraryError, setLibraryError] = useState("");
+  const [renamingVoice, setRenamingVoice] = useState<RenamingVoiceState | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<ConfirmDeleteState | null>(null);
+  const [expressionPreview, setExpressionPreview] = useState<ExpressionPreview | null>(null);
+  const [scriptToDelete, setScriptToDelete] = useState<LocalScript | null>(null);
+  const [generationToDelete, setGenerationToDelete] = useState<LocalGeneration | null>(null);
 
   const audio = useAudioManager();
   const preview = useVoicePreview(audio);
   const generation = useTTSGeneration();
 
-  // Saved customs (the user's local file) take precedence over fetched library
-  // entries so we keep any rename/preview overrides.
   const customVoices = useMemo(
     () => mergeVoiceProfiles(savedCustomVoices, libraryVoices),
     [savedCustomVoices, libraryVoices],
@@ -1235,13 +949,19 @@ export function TTSStudio() {
     return issues;
   }, [state.mode, state.speakers]);
 
-  const promptHasSpeakerPrefixes = useCallback(
-    (prompt: string, speakers: StudioState["speakers"]) =>
-      speakers.some((speaker) =>
-        new RegExp(`(^|\\n)${speaker.speaker_id}:`, "i").test(prompt),
-      ),
-    [],
-  );
+  // Validate that multi-speaker prompts actually use the configured prefixes
+  // before letting the user generate — otherwise Fal rejects the request and
+  // the user only finds out after waiting.
+  const promptValidationIssue = useMemo(() => {
+    if (state.mode !== "multi") return undefined;
+    if (!state.prompt.trim()) return undefined;
+    if (!promptHasSpeakerPrefixes(state.prompt, state.speakers)) {
+      return `Multi-speaker scripts need lines starting with ${state.speakers
+        .map((s) => `"${s.speaker_id}:"`)
+        .join(" or ")}.`;
+    }
+    return undefined;
+  }, [state.mode, state.prompt, state.speakers]);
 
   const refreshCustomVoices = useCallback(async () => {
     const voices = await fetchCustomVoiceLibrary();
@@ -1270,72 +990,78 @@ export function TTSStudio() {
 
   const renameCustomVoice = useCallback(
     (voice: CustomVoiceProfile) => {
-      const nextName = window.prompt("Rename voice", voice.name)?.trim();
-      if (!nextName || nextName === voice.name) {
-        return;
-      }
+      setRenamingVoice({ voice });
+    },
+    [],
+  );
 
-      void Promise.resolve()
-        .then(async () => {
-          const response = await fetch(
-            `/api/custom-voices/${encodeURIComponent(voice.voiceId)}`,
-            {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ name: nextName }),
-            },
-          );
-          if (!response.ok) {
-            throw new Error(await readRouteError(response));
-          }
-          await refreshCustomVoices();
-          setStatusToast(`Renamed ${voice.name} to ${nextName}.`);
-        })
-        .catch((error) => {
-          setLibraryError(
-            error instanceof Error ? error.message : "Could not rename voice.",
-          );
+  const performRenameCustomVoice = useCallback(
+    async (voice: CustomVoiceProfile, nextName: string) => {
+      try {
+        const response = await fetch(
+          `/api/custom-voices/${encodeURIComponent(voice.voiceId)}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: nextName }),
+          },
+        );
+        if (!response.ok) {
+          throw new Error(await readRouteError(response));
+        }
+        await refreshCustomVoices();
+        setStatusToast({
+          tone: "success",
+          message: `Renamed “${voice.name}” to “${nextName}”.`,
         });
+      } catch (error) {
+        setLibraryError(
+          error instanceof Error ? error.message : "Could not rename voice.",
+        );
+      }
     },
     [refreshCustomVoices],
   );
 
   const deleteCustomVoice = useCallback(
     (voice: CustomVoiceProfile) => {
-      if (!window.confirm(`Delete ${voice.name} from your library?`)) {
-        return;
-      }
+      setConfirmDelete({ voice });
+    },
+    [],
+  );
 
-      void Promise.resolve()
-        .then(async () => {
-          const response = await fetch(
-            `/api/custom-voices/${encodeURIComponent(voice.voiceId)}`,
-            { method: "DELETE" },
-          );
-          if (!response.ok) {
-            throw new Error(await readRouteError(response));
-          }
-          const voices = await refreshCustomVoices();
-          setState((current) =>
-            current.provider === "custom" && current.voiceId === voice.voiceId
-              ? {
-                  ...current,
-                  provider: "gemini",
-                  voiceId: "Kore",
-                }
-              : current,
-          );
-          setStatusToast(
+  const performDeleteCustomVoice = useCallback(
+    async (voice: CustomVoiceProfile) => {
+      try {
+        const response = await fetch(
+          `/api/custom-voices/${encodeURIComponent(voice.voiceId)}`,
+          { method: "DELETE" },
+        );
+        if (!response.ok) {
+          throw new Error(await readRouteError(response));
+        }
+        const voices = await refreshCustomVoices();
+        setState((current) =>
+          current.provider === "custom" && current.voiceId === voice.voiceId
+            ? {
+                ...current,
+                provider: "gemini",
+                voiceId: "Kore",
+              }
+            : current,
+        );
+        setStatusToast({
+          tone: "success",
+          message:
             voices.length > 0
-              ? `Deleted ${voice.name}.`
-              : `Deleted ${voice.name}. Your library is empty.`,
-          );
-        })
-        .catch((error) => {
-          setLibraryError(
-            error instanceof Error ? error.message : "Could not delete voice.",
-          );
+              ? `Deleted “${voice.name}”.`
+              : `Deleted “${voice.name}”. Your library is empty.`,
         });
+      } catch (error) {
+        setLibraryError(
+          error instanceof Error ? error.message : "Could not delete voice.",
+        );
+      }
     },
     [refreshCustomVoices],
   );
@@ -1373,8 +1099,15 @@ export function TTSStudio() {
         };
       });
     },
-    [promptHasSpeakerPrefixes],
+    [],
   );
+
+  const insertMultiSpeakerTemplate = useCallback(() => {
+    setState((current) => ({
+      ...current,
+      prompt: buildMultiSpeakerTemplate(current.speakers),
+    }));
+  }, []);
 
   useEffect(() => {
     void Promise.resolve().then(() => {
@@ -1390,7 +1123,6 @@ export function TTSStudio() {
   useEffect(() => {
     let mounted = true;
 
-    // Saved (locally-persisted) voices first — required for accurate names.
     void fetchCustomVoiceLibrary()
       .then((voices) => {
         if (!mounted) return;
@@ -1403,16 +1135,13 @@ export function TTSStudio() {
         );
       });
 
-    // Library voices are an enhancement — failing to fetch them shouldn't
-    // break the UI. They appear silently in the Built-in tab when available.
     void fetchSharedLibraryVoices()
       .then((voices) => {
         if (!mounted) return;
         setLibraryVoices(voices.map(libraryVoiceToProfile));
       })
       .catch(() => {
-        // Swallow: missing API key or transient failure. The studio works
-        // without the extended library — built-in voices are still available.
+        // Swallow: missing API key or transient failure.
       })
       .finally(() => {
         if (!mounted) return;
@@ -1424,10 +1153,12 @@ export function TTSStudio() {
     };
   }, []);
 
-  // Auto-clear toasts after a moment
   useEffect(() => {
     if (!statusToast) return;
-    const handle = window.setTimeout(() => setStatusToast(""), 3500);
+    const handle = window.setTimeout(
+      () => setStatusToast(null),
+      STATUS_TOAST_DURATION_MS,
+    );
     return () => window.clearTimeout(handle);
   }, [statusToast]);
 
@@ -1436,6 +1167,19 @@ export function TTSStudio() {
       clientStore.saveSettings(state);
     }
   }, [hydrated, state]);
+
+  // Listen for localStorage quota events from any writer.
+  useEffect(() => {
+    const handle = () => {
+      setStatusToast({
+        tone: "error",
+        message:
+          "Local storage is full. Delete old generations or scripts to keep saving new ones.",
+      });
+    };
+    window.addEventListener(STORAGE_QUOTA_EVENT, handle);
+    return () => window.removeEventListener(STORAGE_QUOTA_EVENT, handle);
+  }, []);
 
   useEffect(() => {
     if (
@@ -1449,7 +1193,10 @@ export function TTSStudio() {
 
   const saveScript = useCallback(() => {
     const now = new Date().toISOString();
-    const firstLine = state.prompt.split("\n").find(Boolean)?.slice(0, 48);
+    const firstLine = state.prompt
+      .split("\n")
+      .find(Boolean)
+      ?.slice(0, MAX_SCRIPT_TITLE_LENGTH);
     const script: LocalScript = {
       id: makeLocalId("script"),
       title: firstLine || "Untitled script",
@@ -1468,8 +1215,17 @@ export function TTSStudio() {
       createdAt: now,
       updatedAt: now,
     };
-    clientStore.upsertScript(script);
+    const ok = clientStore.upsertScript(script);
     setScripts(clientStore.listScripts());
+    setStatusToast(
+      ok
+        ? { tone: "success", message: `Saved “${script.title}”.` }
+        : {
+            tone: "error",
+            message:
+              "We couldn't save this script — your local storage may be full.",
+          },
+    );
   }, [state]);
 
   const runGenerate = useCallback(() => {
@@ -1553,7 +1309,7 @@ export function TTSStudio() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(50,183,238,0.10),transparent_28%),linear-gradient(180deg,rgba(51,83,254,0.04),transparent_280px)] pb-28 text-foreground">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,var(--theme-accent-soft),transparent_28%),linear-gradient(180deg,var(--theme-primary-light),transparent_280px)] pb-40 text-foreground sm:pb-28">
       <TopBar
         mode={state.mode}
         workspace={workspace}
@@ -1568,47 +1324,64 @@ export function TTSStudio() {
               state={state}
               speakerIssues={speakerIssues}
               onChange={setState}
+              onRequestExpressionPreview={setExpressionPreview}
+              onInsertTemplate={insertMultiSpeakerTemplate}
             />
           </section>
 
           <div className="space-y-5">
             <section className="rounded-lg border border-border bg-background/88 p-4 shadow-sm">
-              <VoicePicker
-                mode={state.mode}
-                visibility={state.mode === "multi" ? "builtin-only" : "all"}
-                builtinVoices={MVP_VOICES}
-                customVoices={customVoices}
-                selectedRef={selectedVoiceRef}
-                speakers={state.speakers}
-                preview={preview}
-                previewLanguage={previewLanguage}
-                loadingLibrary={loadingLibrary}
-                onSelect={selectVoice}
-                onAssignSpeaker={(speakerIndex, ref) => {
-                  if (ref.kind !== "builtin") return;
-                  setState((current) => ({
-                    ...current,
-                    provider: "gemini",
-                    speakers: current.speakers.map((speaker, index) =>
-                      index === speakerIndex
-                        ? { ...speaker, voice: ref.id }
-                        : speaker,
-                    ),
-                  }));
-                }}
-                onRenameCustomVoice={renameCustomVoice}
-                onDeleteCustomVoice={deleteCustomVoice}
-                subtitle={
-                  state.mode === "multi"
-                    ? "Multi-speaker mode uses our built-in TTS voices."
-                    : "Choose the speaker identity first. Delivery settings and emotion tags shape the performance."
-                }
-              />
+              {loadingLibrary ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-6 w-40" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Skeleton className="h-20" />
+                    <Skeleton className="h-20" />
+                    <Skeleton className="h-20" />
+                    <Skeleton className="h-20" />
+                  </div>
+                </div>
+              ) : (
+                <VoicePicker
+                  mode={state.mode}
+                  visibility={state.mode === "multi" ? "builtin-only" : "all"}
+                  builtinVoices={MVP_VOICES}
+                  customVoices={customVoices}
+                  selectedRef={selectedVoiceRef}
+                  speakers={state.speakers}
+                  preview={preview}
+                  previewLanguage={previewLanguage}
+                  loadingLibrary={loadingLibrary}
+                  onSelect={selectVoice}
+                  onAssignSpeaker={(speakerIndex, ref) => {
+                    if (ref.kind !== "builtin") return;
+                    setState((current) => ({
+                      ...current,
+                      provider: "gemini",
+                      speakers: current.speakers.map((speaker, index) =>
+                        index === speakerIndex
+                          ? { ...speaker, voice: ref.id }
+                          : speaker,
+                      ),
+                    }));
+                  }}
+                  onRenameCustomVoice={renameCustomVoice}
+                  onDeleteCustomVoice={deleteCustomVoice}
+                  subtitle={
+                    state.mode === "multi"
+                      ? "Multi-speaker mode uses our built-in TTS voices."
+                      : "Choose the speaker identity first. Delivery settings and emotion tags shape the performance."
+                  }
+                />
+              )}
               {libraryError ? (
-                <p className="mt-2 text-xs text-red-700">{libraryError}</p>
-              ) : null}
-              {statusToast ? (
-                <p className="mt-2 text-xs text-emerald-700">{statusToast}</p>
+                <div className="mt-2">
+                  <Toast
+                    tone="error"
+                    message={libraryError}
+                    onDismiss={() => setLibraryError("")}
+                  />
+                </div>
               ) : null}
             </section>
             <section className="rounded-lg border border-border bg-background/88 p-4 shadow-sm">
@@ -1621,18 +1394,23 @@ export function TTSStudio() {
                   Boolean(selectedCustomVoice)
                 }
                 speakerIssues={speakerIssues}
+                promptValidationIssue={promptValidationIssue}
                 generationError={generation.error}
                 isGenerating={generation.isGenerating}
                 onGenerate={runGenerate}
                 onSaveScript={saveScript}
+                onDismissError={generation.clearError}
               />
             </section>
             <section className="rounded-lg border border-border bg-background/88 p-4 shadow-sm">
               <LocalHistoryPanel
                 generations={generations}
                 scripts={scripts}
+                isLoading={!hydrated}
                 onLoadScript={loadScript}
                 onLoadGeneration={loadGeneration}
+                onDeleteScript={setScriptToDelete}
+                onDeleteGeneration={setGenerationToDelete}
               />
             </section>
           </div>
@@ -1654,6 +1432,198 @@ export function TTSStudio() {
           }}
         />
       ) : null}
+
+      {statusToast ? (
+        <div className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2">
+          <Toast
+            message={statusToast.message}
+            tone={statusToast.tone}
+            onDismiss={() => setStatusToast(null)}
+          />
+        </div>
+      ) : null}
+
+      <PromptDialog
+        open={Boolean(renamingVoice)}
+        title="Rename voice"
+        description={renamingVoice ? `Currently “${renamingVoice.voice.name}”.` : undefined}
+        defaultValue={renamingVoice?.voice.name}
+        placeholder="Voice name"
+        confirmLabel="Save"
+        maxLength={MAX_VOICE_NAME_LENGTH}
+        onCancel={() => setRenamingVoice(null)}
+        onConfirm={(value) => {
+          const voice = renamingVoice?.voice;
+          setRenamingVoice(null);
+          if (voice && value !== voice.name) {
+            void performRenameCustomVoice(voice, value);
+          }
+        }}
+      />
+
+      <ConfirmDialog
+        open={Boolean(confirmDelete)}
+        title="Delete this voice?"
+        description={
+          confirmDelete
+            ? `“${confirmDelete.voice.name}” will be removed from your library. This can't be undone.`
+            : undefined
+        }
+        confirmLabel="Delete"
+        variant="destructive"
+        onCancel={() => setConfirmDelete(null)}
+        onConfirm={() => {
+          const voice = confirmDelete?.voice;
+          setConfirmDelete(null);
+          if (voice) {
+            void performDeleteCustomVoice(voice);
+          }
+        }}
+      />
+
+      <ConfirmDialog
+        open={Boolean(scriptToDelete)}
+        title="Delete saved script?"
+        description={
+          scriptToDelete
+            ? `“${scriptToDelete.title}” will be removed from your local history.`
+            : undefined
+        }
+        confirmLabel="Delete"
+        variant="destructive"
+        onCancel={() => setScriptToDelete(null)}
+        onConfirm={() => {
+          const target = scriptToDelete;
+          setScriptToDelete(null);
+          if (target) {
+            clientStore.deleteScript(target.id);
+            setScripts(clientStore.listScripts());
+          }
+        }}
+      />
+
+      <ConfirmDialog
+        open={Boolean(generationToDelete)}
+        title="Delete this generation?"
+        description="This only removes the saved record from your browser — already-downloaded files are unaffected."
+        confirmLabel="Delete"
+        variant="destructive"
+        onCancel={() => setGenerationToDelete(null)}
+        onConfirm={() => {
+          const target = generationToDelete;
+          setGenerationToDelete(null);
+          if (target) {
+            clientStore.deleteGeneration(target.id);
+            setGenerations(clientStore.listGenerations());
+            if (activeGeneration?.id === target.id) {
+              audio.stop();
+              setActiveGeneration(undefined);
+            }
+          }
+        }}
+      />
+
+      <ExpressionPreviewDialog
+        preview={expressionPreview}
+        onCancel={() => setExpressionPreview(null)}
+        onConfirm={(after) => {
+          setState((current) => ({ ...current, prompt: after }));
+          setExpressionPreview(null);
+          setStatusToast({ tone: "success", message: "Expression cues added." });
+        }}
+      />
     </main>
+  );
+}
+
+function ExpressionPreviewDialog({
+  preview,
+  onCancel,
+  onConfirm,
+}: {
+  preview: ExpressionPreview | null;
+  onCancel: () => void;
+  onConfirm: (after: string) => void;
+}) {
+  useEffect(() => {
+    if (!preview) return;
+    const handle = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onCancel();
+    };
+    document.addEventListener("keydown", handle);
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", handle);
+      document.body.style.overflow = "";
+    };
+  }, [preview, onCancel]);
+
+  if (!preview) return null;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="expression-preview-title"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 px-3 py-4 backdrop-blur-sm sm:items-center sm:px-4 sm:py-6"
+      onClick={onCancel}
+    >
+      <div
+        className="relative w-full max-w-2xl rounded-xl border border-border bg-background p-4 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.35)] sm:p-5"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start gap-3">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[var(--theme-primary-light)] text-theme-primary">
+            <Wand2 size={18} aria-hidden="true" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3
+              id="expression-preview-title"
+              className="font-heading text-base font-semibold"
+            >
+              Add expression cues?
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              We&apos;ll insert local audio tags ([cheerfully], [short pause], etc.) based on the script context.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <div>
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Before
+            </p>
+            <div className="max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-card px-3 py-2 text-xs leading-5 sm:max-h-60">
+              {preview.before}
+            </div>
+          </div>
+          <div>
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-theme-primary">
+              After
+            </p>
+            <div className="max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-theme-primary bg-[var(--theme-primary-light)] px-3 py-2 text-xs leading-5 sm:max-h-60">
+              {preview.after}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 flex justify-end gap-2">
+          <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => onConfirm(preview.after)}
+          >
+            Apply changes
+          </Button>
+        </div>
+        <p className="mt-2 text-right text-[11px] text-muted-foreground">
+          Press Esc to cancel.
+        </p>
+      </div>
+    </div>
   );
 }

@@ -1,5 +1,3 @@
-import { NextResponse } from "next/server";
-
 import {
   createCustomVoiceFileName,
   createSpeech,
@@ -11,24 +9,15 @@ import {
   getFalErrorStatus,
 } from "@/lib/fal-custom-voices";
 import { getCustomVoiceByProviderId } from "@/lib/local-custom-voices";
+import { jsonError } from "@/lib/api-utils";
+import { withRequestLogging } from "@/lib/logger";
+import { MAX_CUSTOM_VOICE_SPEECH_CHARS } from "@/config/limits";
 import type { ElevenLabsVoiceSettings } from "@/types/custom-voices";
-import type { TTSApiError } from "@/types/tts";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-function errorResponse(status: number, code: string, message: string) {
-  const body: TTSApiError = {
-    error: {
-      code,
-      message,
-      retryable: status >= 500,
-    },
-  };
-  return NextResponse.json(body, { status });
-}
-
-export async function POST(request: Request) {
+async function handlePost(request: Request) {
   try {
     const body = (await request.json()) as Record<string, unknown>;
     const voiceId = String(body.voiceId ?? "").trim();
@@ -39,12 +28,20 @@ export async function POST(request: Request) {
         ? body.seed
         : undefined;
 
-    if (!voiceId || text.length < 1 || text.length > 40000) {
-      return errorResponse(
-        400,
-        "CUSTOM_VOICE_SPEECH_REQUIRED",
-        "Select a saved voice and enter text to generate.",
-      );
+    if (!voiceId || text.length < 1) {
+      return jsonError({
+        status: 400,
+        code: "CUSTOM_VOICE_SPEECH_REQUIRED",
+        message: "Select a saved voice and enter text to generate.",
+      });
+    }
+
+    if (text.length > MAX_CUSTOM_VOICE_SPEECH_CHARS) {
+      return jsonError({
+        status: 400,
+        code: "CUSTOM_VOICE_SPEECH_TOO_LONG",
+        message: `Custom voice text must be ${MAX_CUSTOM_VOICE_SPEECH_CHARS} characters or fewer.`,
+      });
     }
 
     const localVoice = await getCustomVoiceByProviderId(voiceId);
@@ -52,8 +49,6 @@ export async function POST(request: Request) {
       localVoice?.name ?? "custom-voice",
       "speech",
     );
-    // Strip tags the studio engine would read literally (e.g. [dramatic]) and
-    // turn known pause tags into <break/> elements it supports natively.
     const cleanedText = sanitizeTextForCustomVoice(text);
 
     if (localVoice?.provider === "fal") {
@@ -62,7 +57,7 @@ export async function POST(request: Request) {
         text: cleanedText,
         speed: settings.speed,
       });
-      return NextResponse.json({
+      return Response.json({
         audio: audio.audio,
         requestId: audio.requestId,
         fileName,
@@ -77,7 +72,7 @@ export async function POST(request: Request) {
       settings,
     });
 
-    return new NextResponse(audio.bytes, {
+    return new Response(audio.bytes, {
       headers: {
         "Content-Type": audio.contentType,
         "Content-Disposition": `attachment; filename="${fileName}"`,
@@ -87,10 +82,12 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     const status = getFalErrorStatus(error);
-    return errorResponse(
+    return jsonError({
       status,
-      "CUSTOM_VOICE_SPEECH_FAILED",
-      getFalErrorMessage(error, "Custom voice generation failed."),
-    );
+      code: "CUSTOM_VOICE_SPEECH_FAILED",
+      message: getFalErrorMessage(error, "Custom voice generation failed."),
+    });
   }
 }
+
+export const POST = withRequestLogging(handlePost, "POST /api/custom-voices/speech");

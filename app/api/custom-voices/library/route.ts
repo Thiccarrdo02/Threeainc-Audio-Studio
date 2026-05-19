@@ -1,18 +1,10 @@
-import { NextResponse } from "next/server";
-
 import { SEEDED_SHARED_VOICES } from "@/config/shared-voice-seeds";
 import { listSharedVoices, type SharedVoiceSummary } from "@/lib/elevenlabs";
-import type { TTSApiError } from "@/types/tts";
+import { getErrorMessage, jsonError } from "@/lib/api-utils";
+import { withRequestLogging } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
-
-function errorResponse(status: number, code: string, message: string) {
-  const body: TTSApiError = {
-    error: { code, message, retryable: status >= 500 },
-  };
-  return NextResponse.json(body, { status });
-}
 
 const TARGET_LIBRARY_VOICES = 60;
 const CURATED_HINDI_BUDGET = 35;
@@ -40,11 +32,6 @@ function dedupe(...lists: SharedVoiceSummary[][]): SharedVoiceSummary[] {
   return out;
 }
 
-/**
- * Curated library mix: many Hindi voices, a healthy chunk of Indian English,
- * and at most a couple of voices per other language so the library doesn't
- * drown in (e.g.) American narrator voices.
- */
 async function fetchCuratedVoices(): Promise<SharedVoiceSummary[]> {
   const [hindi, indianEnglish, indiaSearch, trending] = await Promise.allSettled([
     listSharedVoices({ search: "Hindi", pageSize: CURATED_HINDI_BUDGET }),
@@ -61,10 +48,8 @@ async function fetchCuratedVoices(): Promise<SharedVoiceSummary[]> {
   const trendingVoices =
     trending.status === "fulfilled" ? trending.value.voices : [];
 
-  // Keep all Hindi + Indian English voices; cap other-language voices.
   const merged = dedupe(hindiVoices, indianVoices, indiaSearchVoices);
   const perLanguage = new Map<string, number>();
-  // Seed counts so Hindi/Indian-English aren't accidentally capped further.
   for (const voice of merged) {
     const key = languageKey(voice.language);
     perLanguage.set(key, (perLanguage.get(key) ?? 0) + 1);
@@ -77,7 +62,6 @@ async function fetchCuratedVoices(): Promise<SharedVoiceSummary[]> {
       continue;
     }
     const key = languageKey(voice.language);
-    // Hindi voices always allowed; everything else respects the per-language cap.
     if (key !== "hi" && key !== "hindi") {
       const count = perLanguage.get(key) ?? 0;
       if (count >= PER_LANGUAGE_BUDGET) continue;
@@ -90,7 +74,7 @@ async function fetchCuratedVoices(): Promise<SharedVoiceSummary[]> {
   return dedupe(merged, SEEDED_SHARED_VOICES).slice(0, TARGET_LIBRARY_VOICES);
 }
 
-export async function GET(request: Request) {
+async function handleGet(request: Request) {
   try {
     const url = new URL(request.url);
     const search = url.searchParams.get("search")?.trim() || undefined;
@@ -98,10 +82,9 @@ export async function GET(request: Request) {
     const pageSizeParam = url.searchParams.get("pageSize");
     const pageSize = pageSizeParam ? Number(pageSizeParam) : undefined;
 
-    // Default load (no search/language/pageSize): curated mix.
     if (!search && !language && !pageSize) {
       const voices = await fetchCuratedVoices();
-      return NextResponse.json({ voices, hasMore: false });
+      return Response.json({ voices, hasMore: false });
     }
 
     const result = await listSharedVoices({
@@ -109,7 +92,7 @@ export async function GET(request: Request) {
       language,
       pageSize: pageSize && Number.isFinite(pageSize) ? pageSize : 60,
     });
-    return NextResponse.json(result);
+    return Response.json(result);
   } catch (error) {
     const url = new URL(request.url);
     const isDefaultLoad =
@@ -117,15 +100,17 @@ export async function GET(request: Request) {
       !url.searchParams.get("language") &&
       !url.searchParams.get("pageSize");
     if (isDefaultLoad) {
-      return NextResponse.json({
+      return Response.json({
         voices: SEEDED_SHARED_VOICES.slice(0, TARGET_LIBRARY_VOICES),
         hasMore: false,
       });
     }
-    return errorResponse(
-      502,
-      "VOICE_LIBRARY_SEARCH_FAILED",
-      error instanceof Error ? error.message : "Could not search voices.",
-    );
+    return jsonError({
+      status: 502,
+      code: "VOICE_LIBRARY_SEARCH_FAILED",
+      message: getErrorMessage(error, "Could not search voices."),
+    });
   }
 }
+
+export const GET = withRequestLogging(handleGet, "GET /api/custom-voices/library");

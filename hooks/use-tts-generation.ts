@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
+import { MAX_INLINE_AUDIO_BYTES } from "@/config/limits";
 import { clientStore, makeLocalId } from "@/lib/client-store";
 import {
   countBillableCharacters,
@@ -31,9 +32,30 @@ function isApiError(value: unknown): value is TTSApiError {
   );
 }
 
+async function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("File read failed."));
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+      } else {
+        reject(new Error("Unexpected non-string FileReader result."));
+      }
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
 async function readCustomVoiceResponse(
   response: Response,
-): Promise<{ audioUrl: string; fileName?: string; requestId?: string; fileSize?: number }> {
+): Promise<{
+  audioUrl: string;
+  persistableUrl?: string;
+  fileName?: string;
+  requestId?: string;
+  fileSize?: number;
+}> {
   const contentType = response.headers.get("content-type") ?? "";
   if (contentType.includes("application/json")) {
     const payload: unknown = await response.json();
@@ -54,6 +76,7 @@ async function readCustomVoiceResponse(
     }
     return {
       audioUrl: data.audio.url,
+      persistableUrl: data.audio.url,
       fileName: data.fileName ?? data.audio.file_name,
       requestId: data.requestId,
       fileSize: data.audio.file_size,
@@ -65,8 +88,22 @@ async function readCustomVoiceResponse(
   }
 
   const bytes = await response.blob();
+  // For playback we use an ObjectURL (cheap, no copy). For persistence we
+  // convert to a data URL so the audio survives reloads — but only if the file
+  // is small enough to live in localStorage without blowing the quota.
+  const audioUrl = URL.createObjectURL(bytes);
+  let persistableUrl: string | undefined;
+  if (bytes.size <= MAX_INLINE_AUDIO_BYTES) {
+    try {
+      persistableUrl = await blobToDataUrl(bytes);
+    } catch {
+      persistableUrl = undefined;
+    }
+  }
+
   return {
-    audioUrl: URL.createObjectURL(bytes),
+    audioUrl,
+    persistableUrl,
     fileName:
       response.headers.get("X-ThreeZinc-File-Name") ??
       "threezinc-custom-voice-audio.mp3",
@@ -77,8 +114,16 @@ async function readCustomVoiceResponse(
 
 export function useTTSGeneration() {
   const [state, setState] = useState<GenerationState>({ isGenerating: false });
+  // In-flight guard prevents double-clicks / rapid-fire requests from issuing
+  // duplicate billable calls. Using a ref keeps the check synchronous and
+  // immune to React state-batching latency.
+  const inflightRef = useRef(false);
 
   const generate = useCallback(async (request: TTSGenerateRequest) => {
+    if (inflightRef.current) {
+      return undefined;
+    }
+    inflightRef.current = true;
     setState((current) => ({
       ...current,
       isGenerating: true,
@@ -125,8 +170,11 @@ export function useTTSGeneration() {
           createdAt: new Date().toISOString(),
         };
 
-        if (!generation.audioUrl.startsWith("blob:")) {
-          clientStore.addGeneration(generation);
+        // Persist a stable URL (remote http(s) or data:) — never a transient
+        // blob: URL, which dies on reload.
+        const persistable = audio.persistableUrl;
+        if (persistable && !persistable.startsWith("blob:")) {
+          clientStore.addGeneration({ ...generation, audioUrl: persistable });
         }
         setState({ isGenerating: false, generation });
         return generation;
@@ -210,6 +258,8 @@ export function useTTSGeneration() {
         },
       }));
       return undefined;
+    } finally {
+      inflightRef.current = false;
     }
   }, []);
 
@@ -217,9 +267,14 @@ export function useTTSGeneration() {
     setState({ isGenerating: false });
   }, []);
 
+  const clearError = useCallback(() => {
+    setState((current) => ({ ...current, error: undefined }));
+  }, []);
+
   return {
     ...state,
     generate,
     clearGeneration,
+    clearError,
   };
 }

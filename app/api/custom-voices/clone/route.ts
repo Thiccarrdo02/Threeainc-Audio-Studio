@@ -1,32 +1,28 @@
-import { NextResponse } from "next/server";
-
 import {
   addInstantCloneVoice,
-  getCustomVoiceSubscription,
   voiceToStoredProfile,
 } from "@/lib/elevenlabs";
+import { getCachedCustomVoiceSubscription } from "@/lib/elevenlabs-cache";
 import { upsertCustomVoice } from "@/lib/local-custom-voices";
-import type { TTSApiError } from "@/types/tts";
+import { getErrorMessage, jsonError } from "@/lib/api-utils";
+import { withRequestLogging } from "@/lib/logger";
+import {
+  MAX_VOICE_DESCRIPTION_LENGTH,
+  MAX_VOICE_NAME_LENGTH,
+  MAX_VOICE_SAMPLE_BYTES,
+  MAX_VOICE_SAMPLE_COUNT,
+} from "@/config/limits";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-function errorResponse(status: number, code: string, message: string) {
-  const body: TTSApiError = {
-    error: {
-      code,
-      message,
-      retryable: status >= 500,
-    },
-  };
-  return NextResponse.json(body, { status });
-}
-
-export async function POST(request: Request) {
+async function handlePost(request: Request) {
   try {
     const formData = await request.formData();
-    const name = String(formData.get("name") ?? "").trim();
-    const description = String(formData.get("description") ?? "").trim();
+    const name = String(formData.get("name") ?? "").trim().slice(0, MAX_VOICE_NAME_LENGTH);
+    const description = String(formData.get("description") ?? "")
+      .trim()
+      .slice(0, MAX_VOICE_DESCRIPTION_LENGTH);
     const consent = String(formData.get("consent") ?? "") === "true";
     const removeBackgroundNoise =
       String(formData.get("removeBackgroundNoise") ?? "") === "true";
@@ -41,36 +37,56 @@ export async function POST(request: Request) {
       .filter((item): item is File => item instanceof File && item.size > 0);
 
     if (!consent) {
-      return errorResponse(
-        400,
-        "VOICE_CONSENT_REQUIRED",
-        "Confirm that you own this voice or have permission to clone it.",
-      );
+      return jsonError({
+        status: 400,
+        code: "VOICE_CONSENT_REQUIRED",
+        message: "Confirm that you own this voice or have permission to clone it.",
+      });
     }
 
     if (!name || description.length < 10) {
-      return errorResponse(
-        400,
-        "VOICE_DETAILS_REQUIRED",
-        "Voice name and description are required.",
-      );
+      return jsonError({
+        status: 400,
+        code: "VOICE_DETAILS_REQUIRED",
+        message: "Voice name and description are required.",
+      });
     }
 
     if (files.length === 0) {
-      return errorResponse(
-        400,
-        "VOICE_SAMPLE_REQUIRED",
-        "Upload at least one voice sample.",
-      );
+      return jsonError({
+        status: 400,
+        code: "VOICE_SAMPLE_REQUIRED",
+        message: "Upload at least one voice sample.",
+      });
     }
 
-    const subscription = await getCustomVoiceSubscription();
+    if (files.length > MAX_VOICE_SAMPLE_COUNT) {
+      return jsonError({
+        status: 400,
+        code: "VOICE_SAMPLE_TOO_MANY",
+        message: `Upload up to ${MAX_VOICE_SAMPLE_COUNT} samples per voice.`,
+      });
+    }
+
+    const oversized = files.find((file) => file.size > MAX_VOICE_SAMPLE_BYTES);
+    if (oversized) {
+      return jsonError({
+        status: 413,
+        code: "VOICE_SAMPLE_TOO_LARGE",
+        message: `Each voice sample must be smaller than ${Math.round(
+          MAX_VOICE_SAMPLE_BYTES / 1024 / 1024,
+        )} MB.`,
+      });
+    }
+
+    const subscription = await getCachedCustomVoiceSubscription();
     if (!subscription.canUseInstantVoiceCloning) {
-      return errorResponse(
-        403,
-        "CUSTOM_VOICE_CLONE_NOT_ENABLED",
-        "Instant cloning is not enabled on this account yet. Use Instant Voice or Create Voice to make saved voices, or upgrade the voice account plan to enable cloning.",
-      );
+      return jsonError({
+        status: 403,
+        code: "CUSTOM_VOICE_CLONE_NOT_ENABLED",
+        message:
+          "Instant cloning is not enabled on this account yet. Use Instant Voice or Create Voice to make saved voices, or upgrade the voice account plan to enable cloning.",
+      });
     }
 
     const created = await addInstantCloneVoice({
@@ -85,22 +101,19 @@ export async function POST(request: Request) {
       "instant-clone",
       { name, description },
     );
-    const stored = await upsertCustomVoice(
-      {
-        ...profile,
-        labels: {
-          ...profile.labels,
-          ...labels,
-        },
-      },
-    );
+    const stored = await upsertCustomVoice({
+      ...profile,
+      labels: { ...profile.labels, ...labels },
+    });
 
-    return NextResponse.json({ voice: stored });
+    return Response.json({ voice: stored });
   } catch (error) {
-    return errorResponse(
-      502,
-      "CUSTOM_VOICE_CLONE_FAILED",
-      error instanceof Error ? error.message : "Voice cloning failed.",
-    );
+    return jsonError({
+      status: 502,
+      code: "CUSTOM_VOICE_CLONE_FAILED",
+      message: getErrorMessage(error, "Voice cloning failed."),
+    });
   }
 }
+
+export const POST = withRequestLogging(handlePost, "POST /api/custom-voices/clone");

@@ -32,6 +32,10 @@ test("static preview contract is preserved", async () => {
   assert.deepEqual(manifest.languages, ["en", "hi"]);
   assert.equal(manifest.voices.length, 30);
 
+  // Spot-check a handful of previews are real MP3s (header check + min size).
+  // Running the magic-number probe on all 60 files balloons the test runtime;
+  // a representative sample catches "all files truncated to zero" type regressions.
+  const SAMPLE = manifest.voices.slice(0, 4);
   for (const voice of manifest.voices) {
     for (const language of ["en", "hi"]) {
       const file = join(root, "public/previews", language, `${voice}.mp3`);
@@ -39,6 +43,21 @@ test("static preview contract is preserved", async () => {
       assert.ok(
         fileStat.size > 10000,
         `${voice}/${language} preview should be a real local MP3`,
+      );
+    }
+  }
+
+  for (const voice of SAMPLE) {
+    for (const language of ["en", "hi"]) {
+      const file = join(root, "public/previews", language, `${voice}.mp3`);
+      const bytes = await readFile(file);
+      const head = bytes.subarray(0, 3);
+      const isId3 =
+        head[0] === 0x49 /* I */ && head[1] === 0x44 /* D */ && head[2] === 0x33 /* 3 */;
+      const isFrameSync = head[0] === 0xff && (head[1] & 0xe0) === 0xe0;
+      assert.ok(
+        isId3 || isFrameSync,
+        `${voice}/${language} preview should start with ID3 tag or MP3 frame sync`,
       );
     }
   }
@@ -104,7 +123,9 @@ test("core MVP configuration remains intact", async () => {
   assert.ok(studio.includes("Delivery Style"), "delivery style framing missing");
   assert.ok(studio.includes("Advanced Controls"), "advanced controls disclosure missing");
   assert.ok(studio.includes("Emotion Tags"), "emotion tags label missing");
-  assert.ok(studio.includes("addFallbackExpression"), "auto-expression fallback missing");
+  const helpers = await read("components/studio/studio-helpers.ts");
+  assert.ok(helpers.includes("addFallbackExpression"), "auto-expression fallback missing");
+  assert.ok(helpers.includes("autoMarkupPrompt"), "auto-expression entry point missing");
 });
 
 test("secret stays out of client/source files", async () => {
@@ -164,7 +185,10 @@ test("storage and provider boundaries are documented in code", async () => {
   assert.match(route, /export const maxDuration = 60/);
   assert.match(route, /createStudioFileName/);
   assert.match(route, /threezinc-studio/);
-  assert.match(route, /sanitizeProviderMessage/);
+  // Sanitization moved to a shared helper in Phase 2 so every route reuses it.
+  const apiUtils = await read("lib/api-utils.ts");
+  assert.match(apiUtils, /sanitizeProviderMessage/);
+  assert.match(route, /jsonError|sanitizeProviderMessage/);
   assert.equal(route.includes("NEXT_PUBLIC_FAL_KEY"), false);
   assert.match(eleven, /process\.env\.ELEVENLABS_API_KEY/);
   assert.match(customStore, /\.local/);

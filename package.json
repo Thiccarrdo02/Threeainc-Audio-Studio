@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --import tsx --test tests/*.test.mjs tests/unit/*.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
@@ -31,6 +31,7 @@
     "eslint-config-next": "16.2.4",
     "shadcn": "^4.5.0",
     "tailwindcss": "^4",
+    "tsx": "^4.22.3",
     "typescript": "^5"
   }
 }

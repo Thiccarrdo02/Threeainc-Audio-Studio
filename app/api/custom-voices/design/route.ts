@@ -1,39 +1,29 @@
-import { NextResponse } from "next/server";
-
 import { designVoicePreviews } from "@/lib/elevenlabs";
-import type { TTSApiError } from "@/types/tts";
+import { getErrorMessage, jsonError } from "@/lib/api-utils";
+import { withRequestLogging } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
-
-function errorResponse(status: number, code: string, message: string) {
-  const body: TTSApiError = {
-    error: { code, message, retryable: status >= 500 },
-  };
-  return NextResponse.json(body, { status });
-}
 
 function optionalNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function clamp(value: number | undefined, min: number, max: number) {
-  if (typeof value !== "number") {
-    return undefined;
-  }
+  if (typeof value !== "number") return undefined;
   return Math.min(max, Math.max(min, value));
 }
 
-export async function POST(request: Request) {
+async function handlePost(request: Request) {
   try {
     const body = (await request.json()) as Record<string, unknown>;
     const description = String(body.description ?? "").trim();
     if (description.length < 20) {
-      return errorResponse(
-        400,
-        "VOICE_DESCRIPTION_TOO_SHORT",
-        "Create voice description must be at least 20 characters.",
-      );
+      return jsonError({
+        status: 400,
+        code: "VOICE_DESCRIPTION_TOO_SHORT",
+        message: "Create voice description must be at least 20 characters.",
+      });
     }
 
     const result = await designVoicePreviews({
@@ -43,12 +33,14 @@ export async function POST(request: Request) {
       guidanceScale: clamp(optionalNumber(body.guidanceScale), 0, 100),
       seed: optionalNumber(body.seed),
     });
-    return NextResponse.json(result);
+    return Response.json(result);
   } catch (error) {
-    return errorResponse(
-      502,
-      "CUSTOM_VOICE_CREATE_FAILED",
-      error instanceof Error ? error.message : "Create voice failed.",
-    );
+    return jsonError({
+      status: 502,
+      code: "CUSTOM_VOICE_CREATE_FAILED",
+      message: getErrorMessage(error, "Create voice failed."),
+    });
   }
 }
+
+export const POST = withRequestLogging(handlePost, "POST /api/custom-voices/design");

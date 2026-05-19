@@ -1,10 +1,17 @@
 "use client";
 
+import {
+  MAX_STORED_GENERATIONS,
+  MAX_STORED_SCRIPTS,
+} from "@/config/limits";
+import { storageKey } from "@/lib/storage-keys";
 import type { LocalGeneration, LocalScript, StudioState } from "@/types/tts";
 
-const SETTINGS_KEY = "threezinc-audio.settings.v1";
-const SCRIPTS_KEY = "threezinc-audio.scripts.v1";
-const GENERATIONS_KEY = "threezinc-audio.generations.v1";
+const SETTINGS_KEY = storageKey("settings");
+const SCRIPTS_KEY = storageKey("scripts");
+const GENERATIONS_KEY = storageKey("generations");
+
+export const STORAGE_QUOTA_EVENT = "threezinc:storage-quota-exceeded";
 
 export interface StoredSettings {
   state: StudioState;
@@ -31,12 +38,40 @@ function readJson<T>(key: string, fallback: T): T {
   }
 }
 
-function writeJson<T>(key: string, value: T) {
+function isQuotaError(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const candidate = error as { name?: string; code?: number };
+  return (
+    candidate.name === "QuotaExceededError" ||
+    candidate.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+    candidate.code === 22 ||
+    candidate.code === 1014
+  );
+}
+
+function emitQuotaEvent(detail: { key: string; size: number }) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(STORAGE_QUOTA_EVENT, { detail }));
+}
+
+function writeJson<T>(key: string, value: T): boolean {
   if (!canUseStorage()) {
-    return;
+    return false;
   }
 
-  window.localStorage.setItem(key, JSON.stringify(value));
+  const serialized = JSON.stringify(value);
+
+  try {
+    window.localStorage.setItem(key, serialized);
+    return true;
+  } catch (error) {
+    if (isQuotaError(error)) {
+      emitQuotaEvent({ key, size: serialized.length });
+    }
+    return false;
+  }
 }
 
 export const clientStore = {
@@ -63,7 +98,7 @@ export const clientStore = {
   },
 
   saveSettings(state: StudioState) {
-    writeJson<StoredSettings>(SETTINGS_KEY, { state });
+    return writeJson<StoredSettings>(SETTINGS_KEY, { state });
   },
 
   listScripts(): LocalScript[] {
@@ -75,8 +110,15 @@ export const clientStore = {
     const next = [
       script,
       ...scripts.filter((existing) => existing.id !== script.id),
-    ].slice(0, 20);
-    writeJson(SCRIPTS_KEY, next);
+    ].slice(0, MAX_STORED_SCRIPTS);
+    return writeJson(SCRIPTS_KEY, next);
+  },
+
+  deleteScript(id: string) {
+    return writeJson(
+      SCRIPTS_KEY,
+      this.listScripts().filter((script) => script.id !== id),
+    );
   },
 
   listGenerations(): LocalGeneration[] {
@@ -85,14 +127,29 @@ export const clientStore = {
 
   addGeneration(generation: LocalGeneration) {
     const generations = this.listGenerations();
-    writeJson(GENERATIONS_KEY, [generation, ...generations].slice(0, 30));
+    const next = [generation, ...generations].slice(0, MAX_STORED_GENERATIONS);
+
+    // If we still hit quota (e.g. inline data URLs are large), progressively trim
+    // older items until it fits. Returns true on success.
+    let attempt = [...next];
+    while (attempt.length > 0) {
+      if (writeJson(GENERATIONS_KEY, attempt)) {
+        return true;
+      }
+      attempt = attempt.slice(0, attempt.length - 1);
+    }
+    return false;
   },
 
   deleteGeneration(id: string) {
-    writeJson(
+    return writeJson(
       GENERATIONS_KEY,
       this.listGenerations().filter((generation) => generation.id !== id),
     );
+  },
+
+  clearGenerations() {
+    return writeJson(GENERATIONS_KEY, []);
   },
 };
 

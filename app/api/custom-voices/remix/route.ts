@@ -1,20 +1,12 @@
-import { NextResponse } from "next/server";
-
 import { remixVoicePreviews } from "@/lib/elevenlabs";
 import { getCustomVoiceByProviderId } from "@/lib/local-custom-voices";
-import type { TTSApiError } from "@/types/tts";
+import { getErrorMessage, jsonError } from "@/lib/api-utils";
+import { withRequestLogging } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-function errorResponse(status: number, code: string, message: string) {
-  const body: TTSApiError = {
-    error: { code, message, retryable: status >= 500 },
-  };
-  return NextResponse.json(body, { status });
-}
-
-export async function POST(request: Request) {
+async function handlePost(request: Request) {
   try {
     const body = (await request.json()) as Record<string, unknown>;
     const voiceId = String(body.voiceId ?? "").trim();
@@ -23,20 +15,21 @@ export async function POST(request: Request) {
       typeof body.promptStrength === "number" ? body.promptStrength : 0.5;
 
     if (!voiceId || description.length < 5) {
-      return errorResponse(
-        400,
-        "VOICE_REMIX_REQUIRED",
-        "Voice ID and remix direction are required.",
-      );
+      return jsonError({
+        status: 400,
+        code: "VOICE_REMIX_REQUIRED",
+        message: "Voice ID and remix direction are required.",
+      });
     }
 
     const localVoice = await getCustomVoiceByProviderId(voiceId);
     if (localVoice?.provider === "fal") {
-      return errorResponse(
-        400,
-        "VOICE_REMIX_TARGET_UNSUPPORTED",
-        "Uploaded instant clones can generate typed speech. Remix needs a created or imported library voice.",
-      );
+      return jsonError({
+        status: 400,
+        code: "VOICE_REMIX_TARGET_UNSUPPORTED",
+        message:
+          "Uploaded instant clones can generate typed speech. Remix needs a created or imported library voice.",
+      });
     }
 
     const result = await remixVoicePreviews({
@@ -44,12 +37,14 @@ export async function POST(request: Request) {
       description,
       promptStrength,
     });
-    return NextResponse.json(result);
+    return Response.json(result);
   } catch (error) {
-    return errorResponse(
-      502,
-      "CUSTOM_VOICE_REMIX_FAILED",
-      error instanceof Error ? error.message : "Voice remix failed.",
-    );
+    return jsonError({
+      status: 502,
+      code: "CUSTOM_VOICE_REMIX_FAILED",
+      message: getErrorMessage(error, "Voice remix failed."),
+    });
   }
 }
+
+export const POST = withRequestLogging(handlePost, "POST /api/custom-voices/remix");

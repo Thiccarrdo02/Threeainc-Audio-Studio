@@ -1,17 +1,10 @@
-import { NextResponse } from "next/server";
-
 import { instantTextVoicePreviews } from "@/lib/elevenlabs";
-import type { TTSApiError } from "@/types/tts";
+import { getErrorMessage, jsonError } from "@/lib/api-utils";
+import { withRequestLogging } from "@/lib/logger";
+import { MAX_REFERENCE_AUDIO_BYTES } from "@/config/limits";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
-
-function errorResponse(status: number, code: string, message: string) {
-  const body: TTSApiError = {
-    error: { code, message, retryable: status >= 500 },
-  };
-  return NextResponse.json(body, { status });
-}
 
 function optionalNumber(value: FormDataEntryValue | null) {
   if (typeof value !== "string" || value.trim() === "") {
@@ -22,13 +15,11 @@ function optionalNumber(value: FormDataEntryValue | null) {
 }
 
 function clamp(value: number | undefined, min: number, max: number) {
-  if (typeof value !== "number") {
-    return undefined;
-  }
+  if (typeof value !== "number") return undefined;
   return Math.min(max, Math.max(min, value));
 }
 
-export async function POST(request: Request) {
+async function handlePost(request: Request) {
   try {
     const formData = await request.formData();
     const description = String(formData.get("description") ?? "").trim();
@@ -36,27 +27,37 @@ export async function POST(request: Request) {
     const referenceAudio = formData.get("referenceAudio");
 
     if (!(referenceAudio instanceof File) || referenceAudio.size === 0) {
-      return errorResponse(
-        400,
-        "REFERENCE_AUDIO_REQUIRED",
-        "Upload one clear reference voice sample.",
-      );
+      return jsonError({
+        status: 400,
+        code: "REFERENCE_AUDIO_REQUIRED",
+        message: "Upload one clear reference voice sample.",
+      });
+    }
+
+    if (referenceAudio.size > MAX_REFERENCE_AUDIO_BYTES) {
+      return jsonError({
+        status: 413,
+        code: "REFERENCE_AUDIO_TOO_LARGE",
+        message: `Reference audio must be smaller than ${Math.round(
+          MAX_REFERENCE_AUDIO_BYTES / 1024 / 1024,
+        )} MB.`,
+      });
     }
 
     if (description.length < 20) {
-      return errorResponse(
-        400,
-        "VOICE_DIRECTION_TOO_SHORT",
-        "Describe the reference voice in at least 20 characters.",
-      );
+      return jsonError({
+        status: 400,
+        code: "VOICE_DIRECTION_TOO_SHORT",
+        message: "Describe the reference voice in at least 20 characters.",
+      });
     }
 
     if (text.length < 100 || text.length > 1000) {
-      return errorResponse(
-        400,
-        "INSTANT_TEXT_LENGTH_INVALID",
-        "Target text must be between 100 and 1000 characters.",
-      );
+      return jsonError({
+        status: 400,
+        code: "INSTANT_TEXT_LENGTH_INVALID",
+        message: "Target text must be between 100 and 1000 characters.",
+      });
     }
 
     const result = await instantTextVoicePreviews({
@@ -70,14 +71,14 @@ export async function POST(request: Request) {
       seed: optionalNumber(formData.get("seed")),
     });
 
-    return NextResponse.json(result);
+    return Response.json(result);
   } catch (error) {
-    return errorResponse(
-      502,
-      "REFERENCE_VOICE_TEXT_FAILED",
-      error instanceof Error
-        ? error.message
-        : "Reference voice generation failed.",
-    );
+    return jsonError({
+      status: 502,
+      code: "REFERENCE_VOICE_TEXT_FAILED",
+      message: getErrorMessage(error, "Reference voice generation failed."),
+    });
   }
 }
+
+export const POST = withRequestLogging(handlePost, "POST /api/custom-voices/instant-text");

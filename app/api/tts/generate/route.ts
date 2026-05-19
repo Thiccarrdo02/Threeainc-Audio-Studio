@@ -1,6 +1,5 @@
 import { fal } from "@fal-ai/client";
 import { randomUUID } from "node:crypto";
-import { NextResponse } from "next/server";
 
 import {
   countBillableCharacters,
@@ -8,17 +7,27 @@ import {
   estimateFalCostUsd,
 } from "@/lib/cost";
 import {
+  getErrorMessage,
+  isRetryableProviderError,
+  isTimeoutError,
+  jsonError,
+  withTimeout,
+} from "@/lib/api-utils";
+import { logger, withRequestLogging } from "@/lib/logger";
+import {
   isProviderNotImplemented,
   validateTTSRequest,
   type ValidatedTTSRequest,
   type ValidationIssue,
 } from "@/lib/tts-validation";
-import type { TTSApiError, TTSGenerateResponse } from "@/types/tts";
+import type { TTSGenerateResponse } from "@/types/tts";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const MODEL_ID = "fal-ai/gemini-3.1-flash-tts";
+// Leave a few seconds of headroom under maxDuration so the response can flush.
+const FAL_TIMEOUT_MS = 55_000;
 
 interface FalAudioFile {
   url: string;
@@ -31,40 +40,20 @@ interface FalTTSOutput {
   audio?: FalAudioFile;
 }
 
-function errorResponse(
-  status: number,
-  code: string,
-  message: string,
-  retryable: boolean,
-  details?: unknown,
-) {
-  const body: TTSApiError = {
-    error: {
-      code,
-      message,
-      retryable,
-      ...(details === undefined ? {} : { details }),
-    },
-  };
-
-  return NextResponse.json(body, { status });
-}
-
 function validationErrorResponse(issues: ValidationIssue[]) {
-  return errorResponse(
-    400,
-    "INVALID_REQUEST",
-    "Request validation failed.",
-    false,
-    { issues },
-  );
+  return jsonError({
+    status: 400,
+    code: "INVALID_REQUEST",
+    message: "Request validation failed.",
+    retryable: false,
+    details: { issues },
+  });
 }
 
 function isFalAudioFile(value: unknown): value is FalAudioFile {
   if (typeof value !== "object" || value === null) {
     return false;
   }
-
   const candidate = value as Record<string, unknown>;
   return typeof candidate.url === "string" && candidate.url.length > 0;
 }
@@ -73,48 +62,8 @@ function isFalTTSOutput(value: unknown): value is FalTTSOutput {
   if (typeof value !== "object" || value === null) {
     return false;
   }
-
   const candidate = value as Record<string, unknown>;
   return candidate.audio === undefined || isFalAudioFile(candidate.audio);
-}
-
-function isRetryableProviderError(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) {
-    return false;
-  }
-
-  const candidate = error as Record<string, unknown>;
-  const status = candidate.status ?? candidate.statusCode;
-
-  if (typeof status === "number") {
-    return status === 408 || status === 409 || status === 429 || status >= 500;
-  }
-
-  return true;
-}
-
-function providerErrorMessage(error: unknown) {
-  if (error instanceof Error && error.message) {
-    return error.message;
-  }
-
-  if (typeof error === "object" && error !== null) {
-    const candidate = error as Record<string, unknown>;
-    for (const key of ["message", "detail", "error"]) {
-      if (typeof candidate[key] === "string" && candidate[key].length > 0) {
-        return candidate[key];
-      }
-    }
-  }
-
-  return "Unknown provider error.";
-}
-
-function sanitizeProviderMessage(message: string) {
-  return message
-    .replace(/key[=:]\s*[^,\s"]+/gi, "key=[redacted]")
-    .replace(/authorization[=:]\s*[^,\s"]+/gi, "authorization=[redacted]")
-    .slice(0, 240);
 }
 
 function buildFalInput(request: ValidatedTTSRequest) {
@@ -126,29 +75,22 @@ function buildFalInput(request: ValidatedTTSRequest) {
   if (request.style_instructions) {
     input.style_instructions = request.style_instructions;
   }
-
   if (request.language_code) {
     input.language_code = request.language_code;
   }
-
   if (request.temperature !== undefined) {
     input.temperature = request.temperature;
   }
-
   if (request.mode === "multi") {
     input.speakers = request.speakers;
   } else {
     input.voice = request.voice;
   }
-
   return input;
 }
 
 function filenameExtension(outputFormat: ValidatedTTSRequest["output_format"]) {
-  if (outputFormat === "ogg_opus") {
-    return "ogg";
-  }
-
+  if (outputFormat === "ogg_opus") return "ogg";
   return outputFormat;
 }
 
@@ -179,28 +121,26 @@ function createStudioFileName(request: ValidatedTTSRequest, requestId?: string) 
 
 async function subscribeWithRetry(input: Record<string, unknown>) {
   let lastError: unknown;
+  const MAX_ATTEMPTS = 2;
 
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     try {
       return await fal.subscribe(MODEL_ID, {
         input,
         logs: true,
-        onQueueUpdate(update) {
-          if (update.status === "IN_PROGRESS") {
-            update.logs.map((log) => log.message).forEach(console.log);
-          }
-        },
       });
     } catch (error) {
       lastError = error;
-      console.error("Fal TTS generation failed", {
+      const retryable = isRetryableProviderError(error);
+      logger.warn("fal.subscribe.failed", {
         model: MODEL_ID,
         attempt,
-        retryable: isRetryableProviderError(error),
-        error,
+        retryable,
       });
-
-      if (attempt === 2 || !isRetryableProviderError(error)) {
+      // Only retry transient failures (5xx, 408, 429, network-level errors
+      // with no status). Permanent 4xx errors fail fast — retrying would just
+      // burn latency and money.
+      if (attempt === MAX_ATTEMPTS || !retryable) {
         throw error;
       }
     }
@@ -209,14 +149,20 @@ async function subscribeWithRetry(input: Record<string, unknown>) {
   throw lastError;
 }
 
-export async function POST(request: Request) {
+async function handlePost(request: Request) {
   let body: unknown;
 
   try {
     body = await request.json();
   } catch (error) {
-    return errorResponse(400, "BAD_JSON", "Request body must be valid JSON.", false, {
-      cause: error instanceof Error ? error.message : "Unknown JSON parse error",
+    return jsonError({
+      status: 400,
+      code: "BAD_JSON",
+      message: "Request body must be valid JSON.",
+      retryable: false,
+      details: {
+        cause: error instanceof Error ? error.message : "Unknown JSON parse error",
+      },
     });
   }
 
@@ -226,22 +172,22 @@ export async function POST(request: Request) {
   }
 
   if (isProviderNotImplemented(validation.value.provider)) {
-    return errorResponse(
-      501,
-      "PROVIDER_NOT_IMPLEMENTED",
-      `${validation.value.provider} provider is coming soon.`,
-      false,
-    );
+    return jsonError({
+      status: 501,
+      code: "PROVIDER_NOT_IMPLEMENTED",
+      message: `${validation.value.provider} provider is coming soon.`,
+      retryable: false,
+    });
   }
 
   const falKey = process.env.FAL_KEY;
   if (!falKey) {
-    return errorResponse(
-      503,
-      "FAL_KEY_MISSING",
-      "FAL_KEY is not configured. Add it to .env.local to enable generation.",
-      false,
-    );
+    return jsonError({
+      status: 503,
+      code: "FAL_KEY_MISSING",
+      message: "FAL_KEY is not configured. Add it to .env.local to enable generation.",
+      retryable: false,
+    });
   }
 
   fal.config({ credentials: falKey });
@@ -249,22 +195,24 @@ export async function POST(request: Request) {
   const input = buildFalInput(validation.value);
 
   try {
-    const result = await subscribeWithRetry(input);
+    const result = await withTimeout(
+      async () => subscribeWithRetry(input),
+      FAL_TIMEOUT_MS,
+    );
     const data: unknown = result.data;
 
     if (!isFalTTSOutput(data) || !isFalAudioFile(data.audio)) {
-      console.error("Fal TTS returned unexpected output", {
+      logger.error("fal.invalid_output", {
         model: MODEL_ID,
         requestId: result.requestId,
-        data,
       });
 
-      return errorResponse(
-        502,
-        "INVALID_PROVIDER_RESPONSE",
-        "The provider returned an unexpected audio response.",
-        true,
-      );
+      return jsonError({
+        status: 502,
+        code: "INVALID_PROVIDER_RESPONSE",
+        message: "The provider returned an unexpected audio response.",
+        retryable: true,
+      });
     }
 
     const characterCount = countBillableCharacters(validation.value.prompt);
@@ -283,18 +231,28 @@ export async function POST(request: Request) {
       estimatedCredits: estimateCharacterCredits(characterCount),
     };
 
-    return NextResponse.json(response);
+    return Response.json(response);
   } catch (error) {
-    const providerMessage = sanitizeProviderMessage(providerErrorMessage(error));
-    return errorResponse(
-      502,
-      "PROVIDER_GENERATION_FAILED",
-      `Audio generation failed: ${providerMessage}`,
-      isRetryableProviderError(error),
-      {
-        provider: "fal",
-        model: MODEL_ID,
-      },
-    );
+    if (isTimeoutError(error)) {
+      logger.warn("fal.timeout", { model: MODEL_ID, timeoutMs: FAL_TIMEOUT_MS });
+      return jsonError({
+        status: 504,
+        code: "PROVIDER_TIMEOUT",
+        message:
+          "Generation took longer than expected. Try a shorter script or generate again.",
+        retryable: true,
+      });
+    }
+
+    const providerMessage = getErrorMessage(error, "Unknown provider error.");
+    return jsonError({
+      status: 502,
+      code: "PROVIDER_GENERATION_FAILED",
+      message: `Audio generation failed: ${providerMessage}`,
+      retryable: isRetryableProviderError(error),
+      details: { provider: "fal", model: MODEL_ID },
+    });
   }
 }
+
+export const POST = withRequestLogging(handlePost, "POST /api/tts/generate");

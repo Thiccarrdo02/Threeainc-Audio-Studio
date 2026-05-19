@@ -1,5 +1,5 @@
 export type TTSMode = "single" | "multi";
-export type TTSProvider = "gemini" | "custom" | "openai";
+export type TTSProvider = "gemini" | "custom";
 export type VoiceProvider = "gemini" | "elevenlabs";
 export type TTSOutputFormat = "mp3" | "wav" | "ogg_opus";
 export type VoiceGender = "Male" | "Female";

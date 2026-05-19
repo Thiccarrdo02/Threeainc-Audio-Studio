@@ -1,5 +1,3 @@
-import { NextResponse } from "next/server";
-
 import {
   createCustomVoiceFileName,
   convertSpeechToSpeech,
@@ -10,24 +8,15 @@ import {
   transformFalSpeechToSpeech,
 } from "@/lib/fal-custom-voices";
 import { getCustomVoiceByProviderId } from "@/lib/local-custom-voices";
+import { jsonError } from "@/lib/api-utils";
+import { withRequestLogging } from "@/lib/logger";
+import { MAX_SOURCE_AUDIO_BYTES } from "@/config/limits";
 import type { ElevenLabsVoiceSettings } from "@/types/custom-voices";
-import type { TTSApiError } from "@/types/tts";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-function errorResponse(status: number, code: string, message: string) {
-  const body: TTSApiError = {
-    error: {
-      code,
-      message,
-      retryable: status >= 500,
-    },
-  };
-  return NextResponse.json(body, { status });
-}
-
-export async function POST(request: Request) {
+async function handlePost(request: Request) {
   try {
     const formData = await request.formData();
     const voiceId = String(formData.get("voiceId") ?? "").trim();
@@ -36,21 +25,31 @@ export async function POST(request: Request) {
     const seedRaw = String(formData.get("seed") ?? "");
 
     if (!voiceId || !(audioFile instanceof File) || audioFile.size === 0) {
-      return errorResponse(
-        400,
-        "VOICE_CHANGER_REQUIRED",
-        "Target voice and source audio are required.",
-      );
+      return jsonError({
+        status: 400,
+        code: "VOICE_CHANGER_REQUIRED",
+        message: "Target voice and source audio are required.",
+      });
+    }
+
+    if (audioFile.size > MAX_SOURCE_AUDIO_BYTES) {
+      return jsonError({
+        status: 413,
+        code: "VOICE_CHANGER_SOURCE_TOO_LARGE",
+        message: `Source audio must be smaller than ${Math.round(
+          MAX_SOURCE_AUDIO_BYTES / 1024 / 1024,
+        )} MB.`,
+      });
     }
 
     const localVoice = await getCustomVoiceByProviderId(voiceId);
     if (localVoice?.provider === "fal") {
       if (!localVoice.previewUrl) {
-        return errorResponse(
-          400,
-          "VOICE_REFERENCE_REQUIRED",
-          "This cloned voice needs a preview reference before it can transform audio.",
-        );
+        return jsonError({
+          status: 400,
+          code: "VOICE_REFERENCE_REQUIRED",
+          message: "This cloned voice needs a preview reference before it can transform audio.",
+        });
       }
 
       const result = await transformFalSpeechToSpeech({
@@ -64,7 +63,7 @@ export async function POST(request: Request) {
           "transform",
         ).replace(/\.mp3$/i, ".wav");
 
-      return NextResponse.json({
+      return Response.json({
         audio: result.audio,
         requestId: result.requestId,
         fileName,
@@ -85,7 +84,7 @@ export async function POST(request: Request) {
       "transform",
     );
 
-    return new NextResponse(audio.bytes, {
+    return new Response(audio.bytes, {
       headers: {
         "Content-Type": audio.contentType,
         "Content-Disposition": `attachment; filename="${fileName}"`,
@@ -94,11 +93,12 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
-    const status = getFalErrorStatus(error);
-    return errorResponse(
-      status,
-      "CUSTOM_VOICE_TRANSFORM_FAILED",
-      getFalErrorMessage(error, "Voice transform failed."),
-    );
+    return jsonError({
+      status: getFalErrorStatus(error),
+      code: "CUSTOM_VOICE_TRANSFORM_FAILED",
+      message: getFalErrorMessage(error, "Voice transform failed."),
+    });
   }
 }
+
+export const POST = withRequestLogging(handlePost, "POST /api/custom-voices/voice-changer");

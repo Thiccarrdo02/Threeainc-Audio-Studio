@@ -1,24 +1,16 @@
-import { NextResponse } from "next/server";
-
 import {
   saveGeneratedVoice,
   voiceToStoredProfile,
 } from "@/lib/elevenlabs";
 import { upsertCustomVoice } from "@/lib/local-custom-voices";
+import { getErrorMessage, jsonError } from "@/lib/api-utils";
+import { withRequestLogging } from "@/lib/logger";
 import type { CustomVoiceSource } from "@/types/custom-voices";
-import type { TTSApiError } from "@/types/tts";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-function errorResponse(status: number, code: string, message: string) {
-  const body: TTSApiError = {
-    error: { code, message, retryable: status >= 500 },
-  };
-  return NextResponse.json(body, { status });
-}
-
-export async function POST(request: Request) {
+async function handlePost(request: Request) {
   try {
     const body = (await request.json()) as Record<string, unknown>;
     const generatedVoiceId = String(body.generatedVoiceId ?? "").trim();
@@ -27,11 +19,11 @@ export async function POST(request: Request) {
     const source = String(body.source ?? "voice-design") as CustomVoiceSource;
 
     if (!generatedVoiceId || !name || description.length < 20) {
-      return errorResponse(
-        400,
-        "GENERATED_VOICE_REQUIRED",
-        "Generated voice ID, name, and description are required.",
-      );
+      return jsonError({
+        status: 400,
+        code: "GENERATED_VOICE_REQUIRED",
+        message: "Generated voice ID, name, and description are required.",
+      });
     }
 
     const created = await saveGeneratedVoice({
@@ -44,12 +36,14 @@ export async function POST(request: Request) {
       voiceToStoredProfile(created, source, { name, description }),
     );
 
-    return NextResponse.json({ voice: stored });
+    return Response.json({ voice: stored });
   } catch (error) {
-    return errorResponse(
-      502,
-      "ELEVENLABS_SAVE_GENERATED_FAILED",
-      error instanceof Error ? error.message : "Could not save generated voice.",
-    );
+    return jsonError({
+      status: 502,
+      code: "ELEVENLABS_SAVE_GENERATED_FAILED",
+      message: getErrorMessage(error, "Could not save generated voice."),
+    });
   }
 }
+
+export const POST = withRequestLogging(handlePost, "POST /api/custom-voices/save-generated");

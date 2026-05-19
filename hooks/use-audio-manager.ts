@@ -59,7 +59,9 @@ export function useAudioManager() {
       setState((current) => ({
         ...current,
         isPlaying: false,
-        error: "Audio could not be loaded. The link may be stale or unavailable.",
+        currentTime: 0,
+        duration: 0,
+        error: "We couldn't load this audio. The link may have expired.",
       }));
     };
 

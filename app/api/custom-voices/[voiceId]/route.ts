@@ -1,29 +1,28 @@
-import { NextResponse } from "next/server";
-
 import { deleteElevenLabsVoice } from "@/lib/elevenlabs";
 import {
   getCustomVoiceByProviderId,
   removeCustomVoice,
   updateCustomVoiceMetadata,
 } from "@/lib/local-custom-voices";
-import type { TTSApiError } from "@/types/tts";
+import { getErrorMessage, jsonError } from "@/lib/api-utils";
+import { withRequestLogging } from "@/lib/logger";
+import {
+  MAX_VOICE_DESCRIPTION_LENGTH,
+  MAX_VOICE_NAME_LENGTH,
+} from "@/config/limits";
 
 export const runtime = "nodejs";
 
-function errorResponse(status: number, code: string, message: string) {
-  const body: TTSApiError = {
-    error: { code, message, retryable: status >= 500 },
-  };
-  return NextResponse.json(body, { status });
-}
+type RouteContext = { params: Promise<{ voiceId: string }> };
 
-export async function DELETE(
-  _request: Request,
-  context: { params: Promise<{ voiceId: string }> },
-) {
+async function handleDelete(_request: Request, context: RouteContext) {
   const { voiceId } = await context.params;
   if (!voiceId) {
-    return errorResponse(400, "VOICE_ID_REQUIRED", "Voice ID is required.");
+    return jsonError({
+      status: 400,
+      code: "VOICE_ID_REQUIRED",
+      message: "Voice ID is required.",
+    });
   }
 
   try {
@@ -32,40 +31,43 @@ export async function DELETE(
       await deleteElevenLabsVoice(voiceId);
     }
     await removeCustomVoice(voiceId);
-    return NextResponse.json({ status: "ok" });
+    return Response.json({ status: "ok" });
   } catch (error) {
-    return errorResponse(
-      502,
-      "CUSTOM_VOICE_DELETE_FAILED",
-      error instanceof Error ? error.message : "Could not delete custom voice.",
-    );
+    return jsonError({
+      status: 502,
+      code: "CUSTOM_VOICE_DELETE_FAILED",
+      message: getErrorMessage(error, "Could not delete custom voice."),
+    });
   }
 }
 
-export async function PATCH(
-  request: Request,
-  context: { params: Promise<{ voiceId: string }> },
-) {
+async function handlePatch(request: Request, context: RouteContext) {
   const { voiceId } = await context.params;
   if (!voiceId) {
-    return errorResponse(400, "VOICE_ID_REQUIRED", "Voice ID is required.");
+    return jsonError({
+      status: 400,
+      code: "VOICE_ID_REQUIRED",
+      message: "Voice ID is required.",
+    });
   }
 
   try {
     const body = (await request.json()) as Record<string, unknown>;
     const name =
-      typeof body.name === "string" ? body.name.trim().slice(0, 80) : undefined;
+      typeof body.name === "string"
+        ? body.name.trim().slice(0, MAX_VOICE_NAME_LENGTH)
+        : undefined;
     const description =
       typeof body.description === "string"
-        ? body.description.trim().slice(0, 500)
+        ? body.description.trim().slice(0, MAX_VOICE_DESCRIPTION_LENGTH)
         : undefined;
 
     if (name === "" || (name === undefined && description === undefined)) {
-      return errorResponse(
-        400,
-        "VOICE_METADATA_REQUIRED",
-        "A voice name or description is required.",
-      );
+      return jsonError({
+        status: 400,
+        code: "VOICE_METADATA_REQUIRED",
+        message: "A voice name or description is required.",
+      });
     }
 
     const updated = await updateCustomVoiceMetadata(voiceId, {
@@ -74,15 +76,29 @@ export async function PATCH(
     });
 
     if (!updated) {
-      return errorResponse(404, "VOICE_NOT_FOUND", "Voice was not found.");
+      return jsonError({
+        status: 404,
+        code: "VOICE_NOT_FOUND",
+        message: "Voice was not found.",
+      });
     }
 
-    return NextResponse.json({ voice: updated });
+    return Response.json({ voice: updated });
   } catch (error) {
-    return errorResponse(
-      502,
-      "CUSTOM_VOICE_UPDATE_FAILED",
-      error instanceof Error ? error.message : "Could not update custom voice.",
-    );
+    return jsonError({
+      status: 502,
+      code: "CUSTOM_VOICE_UPDATE_FAILED",
+      message: getErrorMessage(error, "Could not update custom voice."),
+    });
   }
 }
+
+export const DELETE = withRequestLogging(
+  handleDelete as (request: Request, ...args: unknown[]) => Promise<Response>,
+  "DELETE /api/custom-voices/[voiceId]",
+) as (request: Request, context: RouteContext) => Promise<Response>;
+
+export const PATCH = withRequestLogging(
+  handlePatch as (request: Request, ...args: unknown[]) => Promise<Response>,
+  "PATCH /api/custom-voices/[voiceId]",
+) as (request: Request, context: RouteContext) => Promise<Response>;

@@ -32,7 +32,7 @@ export type ValidationResult =
 
 const OUTPUT_FORMATS = ["mp3", "wav", "ogg_opus"] as const;
 const MODES = ["single", "multi"] as const;
-const PROVIDERS = ["gemini", "custom", "openai"] as const;
+const PROVIDERS = ["gemini", "custom"] as const;
 const SPEAKER_ALIAS_PATTERN = /^[A-Za-z0-9]+$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -303,6 +303,9 @@ export function validateTTSRequest(input: unknown): ValidationResult {
   return { ok: true, value: validated };
 }
 
+// Kept as a no-op for forward compatibility — new providers can flag themselves
+// here if they need a "coming soon" gate on the server route.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function isProviderNotImplemented(provider: TTSProvider): boolean {
-  return provider === "openai";
+  return false;
 }

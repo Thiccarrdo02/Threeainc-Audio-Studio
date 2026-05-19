@@ -1,10 +1,11 @@
-import { NextResponse } from "next/server";
-
 import { listCustomVoices } from "@/lib/local-custom-voices";
+import { withRequestLogging } from "@/lib/logger";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+async function handleGet() {
   const voices = await listCustomVoices();
-  return NextResponse.json({ voices });
+  return Response.json({ voices });
 }
+
+export const GET = withRequestLogging(handleGet, "GET /api/custom-voices");

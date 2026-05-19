@@ -1,34 +1,26 @@
-import { NextResponse } from "next/server";
-
-import { getCustomVoiceSubscription } from "@/lib/elevenlabs";
-import type { TTSApiError } from "@/types/tts";
+import { getCachedCustomVoiceSubscription } from "@/lib/elevenlabs-cache";
+import { getErrorMessage, jsonError } from "@/lib/api-utils";
+import { withRequestLogging } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
-function errorResponse(status: number, code: string, message: string) {
-  const body: TTSApiError = {
-    error: { code, message, retryable: status >= 500 },
-  };
-  return NextResponse.json(body, { status });
-}
-
-export async function GET() {
+async function handleGet() {
   try {
-    const subscription = await getCustomVoiceSubscription();
-    return NextResponse.json({
+    const subscription = await getCachedCustomVoiceSubscription();
+    return Response.json({
       canUseInstantVoiceCloning: subscription.canUseInstantVoiceCloning,
       canUseProfessionalVoiceCloning: subscription.canUseProfessionalVoiceCloning,
       voiceSlotsUsed: subscription.voiceSlotsUsed,
       voiceLimit: subscription.voiceLimit,
     });
   } catch (error) {
-    return errorResponse(
-      502,
-      "CUSTOM_VOICE_CAPABILITIES_FAILED",
-      error instanceof Error
-        ? error.message
-        : "Could not load custom voice account capabilities.",
-    );
+    return jsonError({
+      status: 502,
+      code: "CUSTOM_VOICE_CAPABILITIES_FAILED",
+      message: getErrorMessage(error, "Could not load custom voice account capabilities."),
+    });
   }
 }
+
+export const GET = withRequestLogging(handleGet, "GET /api/custom-voices/capabilities");
