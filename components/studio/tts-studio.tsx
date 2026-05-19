@@ -1205,6 +1205,28 @@ export function TTSStudio() {
     return () => window.removeEventListener(STORAGE_QUOTA_EVENT, handle);
   }, []);
 
+  // When a fresh generation arrives and the user has the tab backgrounded,
+  // flash the document title so they notice the audio is ready without having
+  // to come back to the studio first. Restored on tab focus.
+  useEffect(() => {
+    if (!activeGeneration) return;
+    if (typeof document === "undefined") return;
+    if (!document.hidden) return;
+    const originalTitle = document.title;
+    document.title = "🔔 Audio ready — ThreeZinc Studio";
+    const restore = () => {
+      if (!document.hidden) {
+        document.title = originalTitle;
+        document.removeEventListener("visibilitychange", restore);
+      }
+    };
+    document.addEventListener("visibilitychange", restore);
+    return () => {
+      document.title = originalTitle;
+      document.removeEventListener("visibilitychange", restore);
+    };
+  }, [activeGeneration]);
+
   useEffect(() => {
     if (
       audio.state.activeKind === "preview" &&
@@ -1295,6 +1317,16 @@ export function TTSStudio() {
       if (item) {
         setActiveGeneration(item);
         setGenerations(clientStore.listGenerations());
+        const summary =
+          item.prompt.trim().split(/\s+/).slice(0, 6).join(" ") ||
+          item.fileName ||
+          "your script";
+        setStatusToast({
+          tone: "success",
+          message: `New audio ready — "${summary}${
+            summary.length < item.prompt.length ? "…" : ""
+          }". Use the player at the bottom to listen.`,
+        });
       }
     });
   }, [generation, selectedCustomVoice, state]);

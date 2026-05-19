@@ -467,10 +467,15 @@ export function VoicePicker({
     [customVoices],
   );
 
+  // Default the tab to the one containing the currently-selected voice so a
+  // user who picked a custom voice still sees it highlighted after switching
+  // away to the Voice Lab and back.
   const initialTab: VoiceTabKey =
     visibility === "custom-only" || visibility === "remix-source"
       ? "custom"
-      : "builtin";
+      : selectedRef?.kind === "custom"
+        ? "custom"
+        : "builtin";
   const [userTab, setUserTab] = useState<VoiceTabKey>(initialTab);
   // The effective tab honours the visibility prop. When visibility forces a
   // single tab, we ignore the user's last chosen tab.
@@ -480,6 +485,24 @@ export function VoicePicker({
       : visibility === "custom-only" || visibility === "remix-source"
         ? "custom"
         : userTab;
+
+  // If the selection changes to a voice on a different tab (e.g. user picked a
+  // custom voice from the Recents chip while viewing Built-in), follow it.
+  // Microtask defers the setState out of the effect body so the lint rule
+  // (set-state-in-effect) treats it as an async sync, which is what it is.
+  useEffect(() => {
+    if (!selectedRef) return;
+    if (visibility !== "all") return;
+    const target: VoiceTabKey = selectedRef.kind === "custom" ? "custom" : "builtin";
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (cancelled) return;
+      setUserTab((current) => (current === target ? current : target));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedRef, visibility]);
   const [query, setQuery] = useState("");
   const [genderFilter, setGenderFilter] = useState<"all" | "male" | "female">("all");
   const [languageFilter, setLanguageFilter] = useState("all");
@@ -617,7 +640,13 @@ export function VoicePicker({
       const matchesGender =
         genderFilter === "all" ||
         (typeof voice.gender === "string" &&
-          voice.gender.toLowerCase().includes(genderFilter));
+          // Word-boundary check so "female" doesn't match the "male" filter.
+          // Tokenises on common separators ("Adult female", "non-binary/male").
+          voice.gender
+            .toLowerCase()
+            .split(/[\s/_,\-()]+/)
+            .filter(Boolean)
+            .includes(genderFilter));
       const matchesLanguage =
         languageFilter === "all" || voice.language === languageFilter;
       const matchesAccent =
