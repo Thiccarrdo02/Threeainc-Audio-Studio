@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { VoicePicker } from "@/components/studio/voice-picker";
 import { useAudioManager } from "@/hooks/use-audio-manager";
 import { useVoicePreview } from "@/hooks/use-voice-preview";
+import { clientStore } from "@/lib/client-store";
 import { MVP_VOICES } from "@/config/voices";
 import {
   countBillableCharacters,
@@ -710,17 +711,24 @@ export function CustomVoiceLab() {
     setBusyAction("refresh");
     try {
       const next = await fetchVoices();
-      setSavedVoices(next);
+      // If the server cache was wiped (Vercel cold start), keep the locally
+      // cached voices rather than blanking the library.
+      const cached = clientStore.listCachedCustomVoices();
+      const effective = next.length > 0 || cached.length === 0 ? next : cached;
+      setSavedVoices(effective);
+      if (next.length > 0) {
+        clientStore.cacheCustomVoices(next);
+      }
       setSelectedVoiceRef((current) => {
         if (current && current.kind === "custom") {
-          const stillExists = next.some((voice) => voice.voiceId === current.id);
+          const stillExists = effective.some((voice) => voice.voiceId === current.id);
           if (stillExists) return current;
         }
         if (current && current.kind === "builtin") return current;
-        const first = next[0];
+        const first = effective[0];
         return first ? { kind: "custom", id: first.voiceId } : null;
       });
-      return next;
+      return effective;
     } finally {
       setBusyAction((current) => (current === "refresh" ? null : current));
     }
@@ -732,11 +740,15 @@ export function CustomVoiceLab() {
 
   useEffect(() => {
     let mounted = true;
-    // Microtask defers the synchronous setBusyAction inside refreshVoices so
-    // the lint rule sees it as a side effect of an async chain, not a sync
-    // setState in the effect body.
+    // Prime the lab with the locally cached snapshot so the user sees their
+    // existing voices instantly — important on Vercel where the server-side
+    // store is ephemeral across cold starts.
     void Promise.resolve().then(() => {
       if (!mounted) return;
+      const cached = clientStore.listCachedCustomVoices();
+      if (cached.length > 0) {
+        setSavedVoices(cached);
+      }
       return refreshVoices().catch(() => {
         // Saved voices unavailable — ignore so the picker still shows built-ins.
       });

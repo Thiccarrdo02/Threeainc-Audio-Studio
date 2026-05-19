@@ -5,11 +5,13 @@ import {
   MAX_STORED_SCRIPTS,
 } from "@/config/limits";
 import { storageKey } from "@/lib/storage-keys";
+import type { CustomVoiceProfile } from "@/types/custom-voices";
 import type { LocalGeneration, LocalScript, StudioState } from "@/types/tts";
 
 const SETTINGS_KEY = storageKey("settings");
 const SCRIPTS_KEY = storageKey("scripts");
 const GENERATIONS_KEY = storageKey("generations");
+const CUSTOM_VOICES_KEY = storageKey("customVoices");
 
 export const STORAGE_QUOTA_EVENT = "threezinc:storage-quota-exceeded";
 
@@ -150,6 +152,19 @@ export const clientStore = {
 
   clearGenerations() {
     return writeJson(GENERATIONS_KEY, []);
+  },
+
+  /**
+   * Snapshot of the server-side custom voice list. On platforms with ephemeral
+   * filesystems (Vercel, Lambda) the server cache disappears on cold start —
+   * mirroring it here lets the UI still show what the user already created.
+   */
+  listCachedCustomVoices(): CustomVoiceProfile[] {
+    return readJson<CustomVoiceProfile[]>(CUSTOM_VOICES_KEY, []);
+  },
+
+  cacheCustomVoices(voices: CustomVoiceProfile[]) {
+    return writeJson(CUSTOM_VOICES_KEY, voices);
   },
 };
 

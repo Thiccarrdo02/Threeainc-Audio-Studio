@@ -1,15 +1,31 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { logger } from "@/lib/logger";
 import {
   DEFAULT_ELEVENLABS_SETTINGS,
   type CustomVoiceProfile,
 } from "@/types/custom-voices";
 
 const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-const storeDir = join(projectRoot, ".local");
+
+/**
+ * Locally, voices persist to `<project>/.local/custom-voices.json`. On
+ * serverless platforms (Vercel/Lambda/etc.) the deployment directory is
+ * read-only, so we fall back to the OS temp dir. The temp file is per-instance
+ * and lost on cold start, but provider-side state (ElevenLabs/Fal) survives —
+ * cold starts just show an empty local index until the user re-imports.
+ */
+function isReadOnlyDeployment(): boolean {
+  return Boolean(process.env.VERCEL) || Boolean(process.env.LAMBDA_TASK_ROOT);
+}
+
+const storeDir = isReadOnlyDeployment()
+  ? join(tmpdir(), "threezinc-audio-studio")
+  : join(projectRoot, ".local");
 const storePath = join(storeDir, "custom-voices.json");
 
 interface CustomVoiceStore {
@@ -28,9 +44,20 @@ async function readStore(): Promise<CustomVoiceStore> {
   }
 }
 
-async function writeStore(store: CustomVoiceStore) {
-  await mkdir(storeDir, { recursive: true });
-  await writeFile(storePath, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+async function writeStore(store: CustomVoiceStore): Promise<boolean> {
+  try {
+    await mkdir(storeDir, { recursive: true });
+    await writeFile(storePath, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+    return true;
+  } catch (error) {
+    // Persistence failures should not bubble up — provider-side state is the
+    // source of truth. Log so operators can see this in serverless logs.
+    logger.warn("custom-voices.persistence_failed", {
+      storeDir,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
 }
 
 export async function listCustomVoices() {

@@ -8,6 +8,7 @@ export const STORAGE_SCHEMA = {
   settings: { key: "threezinc-audio.settings", version: 1 },
   scripts: { key: "threezinc-audio.scripts", version: 1 },
   generations: { key: "threezinc-audio.generations", version: 1 },
+  customVoices: { key: "threezinc-audio.custom-voices", version: 1 },
 } as const;
 
 export type StorageSchemaKey = keyof typeof STORAGE_SCHEMA;

@@ -966,6 +966,9 @@ export function TTSStudio() {
   const refreshCustomVoices = useCallback(async () => {
     const voices = await fetchCustomVoiceLibrary();
     setSavedCustomVoices(voices);
+    // Mirror the server list into localStorage so a serverless cold start
+    // doesn't make the user's voices look like they vanished.
+    clientStore.cacheCustomVoices(voices);
     return voices;
   }, []);
 
@@ -1123,16 +1126,37 @@ export function TTSStudio() {
   useEffect(() => {
     let mounted = true;
 
+    // Prime the UI with the locally cached snapshot before hitting the network
+    // — this makes the library appear instantly and survives cold starts on
+    // serverless platforms where the server-side store is ephemeral. Defer
+    // through a microtask so the synchronous setState happens after mount.
+    const cached = clientStore.listCachedCustomVoices();
+    void Promise.resolve().then(() => {
+      if (!mounted) return;
+      if (cached.length > 0) {
+        setSavedCustomVoices(cached);
+      }
+    });
+
     void fetchCustomVoiceLibrary()
       .then((voices) => {
         if (!mounted) return;
-        setSavedCustomVoices(voices);
+        // Server returned voices → use them as truth and refresh the cache.
+        // Server returned empty (e.g. cold-start ephemeral cache) but we have
+        // a local snapshot → keep showing the cached voices.
+        if (voices.length > 0 || cached.length === 0) {
+          setSavedCustomVoices(voices);
+          clientStore.cacheCustomVoices(voices);
+        }
       })
       .catch((error) => {
         if (!mounted) return;
-        setLibraryError(
-          error instanceof Error ? error.message : "Could not load voices.",
-        );
+        // Only surface the error if we have nothing cached either.
+        if (cached.length === 0) {
+          setLibraryError(
+            error instanceof Error ? error.message : "Could not load voices.",
+          );
+        }
       });
 
     void fetchSharedLibraryVoices()
